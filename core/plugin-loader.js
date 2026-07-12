@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import logger from "./logger.js"
+import { pathToFileURL } from "url";
 
 const PLUGIN_DIR = "./plugins";
 
@@ -16,7 +17,10 @@ export async function loadPlugins(ctx) {
                 folder,
                 "index.js"
             );
-            const plugin = (await import(pluginPath)).default;
+
+            const pluginURL = pathToFileURL(pluginPath).href;
+            
+            const plugin = (await import(pluginURL)).default;
 
             await plugin.init(ctx);
             

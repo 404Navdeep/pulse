@@ -12,4 +12,4 @@ const ctx = {
 
 await loadPlugins(ctx);
 
-logger.info("Pulse is rady!")
+logger.info("Pulse is ready!")
