@@ -2,11 +2,14 @@ export default {
     id: "sleep",
 
     async init(ctx) {
-        ctx.logger.info("Sleep plugin on");
+        ctx.state.set("sleep", {
+            enabled: false,
+            reason: "",
+            since: null,
+            repliedUsers: {}
+        });
 
-        ctx.events.onEvent("app.ready", () => {
-            ctx.logger.info("Sleep plugin using app.ready")
-        })
+        ctx.logger.info("Sleep plugin on");
     },
 
     async stop(ctx) {
