@@ -1,5 +1,5 @@
 import { createSlack } from "./slack.js"
-import CommandManager from "./command-manager"
+import CommandManager from "./command-manager.js"
 import PluginManager from "./plugin-manager.js"
 import state from "./state.js"
 import events from "./event-bus.js"
@@ -29,7 +29,7 @@ export async function createApp() {
         async start() {
             await plugins.loadAll();
             for (const command of commands.list()) {
-                slack.command(
+                slack.app.command(
                     `/${command.name}`,
                     async (payload) => {
                         try {
@@ -51,7 +51,7 @@ export async function createApp() {
             }
 
             
-            await slack.start();
+            await slack.app.start();
             logger.info("Pulse is ready");
         }
     }

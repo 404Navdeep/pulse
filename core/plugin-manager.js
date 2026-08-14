@@ -30,7 +30,7 @@ export default class PluginManager {
                     pathToFileURL(pluginPath).href
                 );
 
-                const plugin = mudule.default;
+                const plugin = module.default;
 
                 if(!plugin?.id) {
                     throw new Error(
@@ -52,7 +52,11 @@ export default class PluginManager {
                 this.ctx.logger.error(
                     {
                         plugin: entry.name,
-                        error
+                        error: {
+                            message: error.message,
+                            stack: error.stack,
+                            name: error.name
+                        }
                     },
                     "Failed to load plugin"
                 );

@@ -1,26 +1,9 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import logger from "./core/logger.js";
-import { loadPlugins } from "./core/plugin-loader.js";
-import events from "./core/event-bus.js";
-import { initSlack } from "./core/slack.js";
-import state from "./core/state.js";
+import { createApp } from "./core/app.js";
 
-dotenv.config();
+logger.info("Starting Pulse...");
 
-logger.info("Pulse is starting!");
-const slack = await initSlack();
+const app = await createApp();
 
-const ctx = {
-    logger,
-    events,
-    slack,
-    state
-};
-
-ctx.slack = slack;
-
-await loadPlugins(ctx);
-
-logger.info("Pulse is ready!");
-
-events.emitEvent("app.ready");
+await app.start();
