@@ -22,4 +22,29 @@ export default class CommandManager {
     list() {
         return [...this.commands.values()];
     }
+
+    async execute(name, payload) {
+        const command =
+            this.get(name);
+        
+            if (!command) {
+                throw new Error(
+                    `Unkown command: ${name}`
+                );
+            }
+            const {ctx} = payload;
+
+            if(command.ownerOnly &&
+                payload.command.user_id !==
+                    ctx.state.get("afk.userId")
+            ) {
+                await payload.ack();
+                await payload.respond({
+                    response_type: "ephemeral",
+                    text: "You dont have permission to use this command."
+                });
+                return;
+            }
+            return command.execute(payload);
+    }
 }

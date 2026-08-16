@@ -22,7 +22,7 @@ export default class PluginManager {
             const pluginPath = path.join(
                 pluginDir,
                 entry.name,
-                "index.js"
+                "main.js"
             );
             
             try {
