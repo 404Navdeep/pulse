@@ -178,13 +178,12 @@ export default {
 
         ctx.slack.app.action(
             "join404pc_ping",
-            async ({ ack, body, respond }) => {
+            async ({ ack, body }) => {
                 await ack();
 
                 try {
                     await handlePingOptIn(
                         body,
-                        respond,
                         ctx
                     );
                 } catch (error) {
@@ -556,25 +555,36 @@ async function handleDecision(
 
 async function handlePingOptIn(
     body,
-    respond,
     ctx
 ) {
+    const action =
+        body.actions?.[0];
+
+    if (!action) {
+        return;
+    }
+
     const requesterId =
-        body.actions[0].value;
+        action.value;
 
     const clickingUserId =
         body.user?.id;
 
-    if (
-        clickingUserId !==
-        requesterId
-    ) {
-        await respond({
-            response_type: "ephemeral",
+    if (!requesterId || !clickingUserId) {
+        return;
+    }
 
+    if (clickingUserId !== requesterId) {
+        await ctx.slack.botClient.chat.postEphemeral({
+            channel: body.channel.id,
+            user: clickingUserId,
             text:
                 "This button ain't for you, mate."
         });
+
+        ctx.logger.info(
+            `Unauthorized 404ers ping button attempt by ${clickingUserId}`
+        );
 
         return;
     }
@@ -587,9 +597,9 @@ async function handlePingOptIn(
             "S404ERS_GID is missing"
         );
 
-        await respond({
-            response_type: "ephemeral",
-
+        await ctx.slack.botClient.chat.postEphemeral({
+            channel: body.channel.id,
+            user: clickingUserId,
             text:
                 "The ping group is not configured yet."
         });
@@ -602,9 +612,9 @@ async function handlePingOptIn(
         users: requesterId
     });
 
-    await respond({
-        response_type: "ephemeral",
-
+    await ctx.slack.botClient.chat.postEphemeral({
+        channel: body.channel.id,
+        user: clickingUserId,
         text:
             ":white_check_mark: Added you to the 404ers ping group!"
     });
