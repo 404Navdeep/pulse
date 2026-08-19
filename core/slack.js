@@ -12,8 +12,13 @@ export async function createSlack() {
         process.env.SLACK_USER_TOKEN
     );
 
+    const botClient = new WebClient(
+        process.env.SLACK_BOT_TOKEN
+    );
+
     return {
         app,
-        userClient
+        userClient,
+        botClient
     };
 }

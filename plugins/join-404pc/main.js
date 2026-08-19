@@ -1,18 +1,33 @@
 export default {
     id: "join-404pc",
     name: "Join 404-PC",
-    version: "0.1.0",
+    version: "0.2.0",
 
     async init(ctx) {
-        const auth =
-            await ctx.slack.userClient.auth.test();
+        const auth = await ctx.slack.botClient.auth.test();
 
         const ownerUserId =
-            process.env.OWNER_ID || auth.user_id;
+            process.env.OWNER_ID;
+
+        const channelId =
+            process.env.S404PC_CID;
+
+        if (!ownerUserId) {
+            throw new Error("OWNER_ID is not configured");
+        }
+
+        if (!channelId) {
+            throw new Error("S404PC_CID is not configured");
+        }
 
         ctx.state.set(
             "join404pc.ownerUserId",
             ownerUserId
+        );
+
+        ctx.state.set(
+            "join404pc.channelId",
+            channelId
         );
 
         ctx.commands.register({
@@ -27,7 +42,7 @@ export default {
             }) {
                 await ack();
 
-                await ctx.slack.userClient.views.open({
+                await ctx.slack.botClient.views.open({
                     trigger_id: command.trigger_id,
 
                     view: {
@@ -36,8 +51,7 @@ export default {
 
                         private_metadata:
                             JSON.stringify({
-                                userId: command.user_id,
-                                channelId: command.channel_id
+                                userId: command.user_id
                             }),
 
                         title: {
@@ -72,7 +86,7 @@ export default {
 
                                     placeholder: {
                                         type: "plain_text",
-                                        text: "Why?"
+                                        text: "Why do you want to join?"
                                     }
                                 }
                             }
@@ -82,7 +96,7 @@ export default {
 
                 await respond({
                     response_type: "ephemeral",
-                    text: "Join request sent! :yay:"
+                    text: "Join request sent!"
                 });
             }
         });
@@ -188,7 +202,7 @@ export default {
         );
 
         ctx.logger.info(
-            `Join 404PC plugin initialized for ${ownerUserId}`
+            `Join 404PC plugin initialized as ${auth.user_id}`
         );
     }
 };
@@ -205,9 +219,6 @@ async function handleSubmission(
 
     const requesterId =
         metadata.userId;
-
-    const channelId =
-        metadata.channelId;
 
     const reason =
         view.state.values
@@ -229,8 +240,13 @@ async function handleSubmission(
             "join404pc.ownerUserId"
         );
 
+    const channelId =
+        ctx.state.get(
+            "join404pc.channelId"
+        );
+
     const userInfo =
-        await ctx.slack.userClient.users.info({
+        await ctx.slack.botClient.users.info({
             user: requesterId
         });
 
@@ -244,7 +260,7 @@ async function handleSubmission(
         requesterId;
 
     const ownerDM =
-        await ctx.slack.userClient.conversations.open({
+        await ctx.slack.botClient.conversations.open({
             users: ownerUserId
         });
 
@@ -257,7 +273,7 @@ async function handleSubmission(
         );
     }
 
-    await ctx.slack.userClient.chat.postMessage({
+    await ctx.slack.botClient.chat.postMessage({
         channel: ownerChannelId,
 
         text:
@@ -287,7 +303,7 @@ async function handleSubmission(
                     {
                         type: "mrkdwn",
                         text:
-                            `*Channel:*\n<#${channelId}>`
+                            `*Destination:*\n<#${channelId}>`
                     }
                 ]
             },
@@ -321,8 +337,7 @@ async function handleSubmission(
 
                         value:
                             JSON.stringify({
-                                requesterId,
-                                channelId
+                                requesterId
                             })
                     },
 
@@ -341,8 +356,7 @@ async function handleSubmission(
 
                         value:
                             JSON.stringify({
-                                requesterId,
-                                channelId
+                                requesterId
                             })
                     }
                 ]
@@ -385,11 +399,13 @@ async function handleDecision(
         data.requesterId;
 
     const channelId =
-        data.channelId;
+        ctx.state.get(
+            "join404pc.channelId"
+        );
 
     if (!approved) {
         const requesterDM =
-            await ctx.slack.userClient.conversations.open({
+            await ctx.slack.botClient.conversations.open({
                 users: requesterId
             });
 
@@ -397,7 +413,7 @@ async function handleDecision(
             requesterDM.channel?.id;
 
         if (requesterChannelId) {
-            await ctx.slack.userClient.chat.postMessage({
+            await ctx.slack.botClient.chat.postMessage({
                 channel: requesterChannelId,
 
                 text:
@@ -405,7 +421,7 @@ async function handleDecision(
             });
         }
 
-        await ctx.slack.userClient.chat.update({
+        await ctx.slack.botClient.chat.update({
             channel: body.channel.id,
             ts: body.message.ts,
 
@@ -433,12 +449,12 @@ async function handleDecision(
         return;
     }
 
-    await ctx.slack.userClient.conversations.invite({
+    await ctx.slack.botClient.conversations.invite({
         channel: channelId,
         users: requesterId
     });
 
-    await ctx.slack.userClient.chat.postMessage({
+    await ctx.slack.botClient.chat.postMessage({
         channel: channelId,
 
         text:
@@ -495,7 +511,7 @@ async function handleDecision(
         ]
     });
 
-    await ctx.slack.userClient.chat.update({
+    await ctx.slack.botClient.chat.update({
         channel: body.channel.id,
         ts: body.message.ts,
 
@@ -517,7 +533,7 @@ async function handleDecision(
     });
 
     const requesterDM =
-        await ctx.slack.userClient.conversations.open({
+        await ctx.slack.botClient.conversations.open({
             users: requesterId
         });
 
@@ -525,7 +541,7 @@ async function handleDecision(
         requesterDM.channel?.id;
 
     if (requesterChannelId) {
-        await ctx.slack.userClient.chat.postMessage({
+        await ctx.slack.botClient.chat.postMessage({
             channel: requesterChannelId,
 
             text:
@@ -581,7 +597,7 @@ async function handlePingOptIn(
         return;
     }
 
-    await ctx.slack.userClient.usergroups.users.update({
+    await ctx.slack.botClient.usergroups.users.update({
         usergroup: userGroupId,
         users: requesterId
     });
