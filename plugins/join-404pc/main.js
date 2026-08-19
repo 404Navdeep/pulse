@@ -6,10 +6,10 @@ export default {
     async init(ctx) {
         const auth =
             await ctx.slack.userClient.auth.test();
-        
+
         const ownerUserId =
             process.env.OWNER_ID || auth.user_id;
-        
+
         ctx.state.set(
             "join404pc.ownerUserId",
             ownerUserId
@@ -27,50 +27,52 @@ export default {
             }) {
                 await ack();
 
-                const channelId =
-                    command.channel_id;
-                
-                const userId =
-                    command.user_id;
-
                 await ctx.slack.userClient.views.open({
                     trigger_id: command.trigger_id,
+
                     view: {
                         type: "modal",
                         callback_id: "join404pc_request",
-                        private_metadata: 
+
+                        private_metadata:
                             JSON.stringify({
-                                userId,
-                                channelId
+                                userId: command.user_id,
+                                channelId: command.channel_id
                             }),
+
                         title: {
                             type: "plain_text",
                             text: "Join 404PC"
                         },
+
                         submit: {
                             type: "plain_text",
                             text: "Submit"
                         },
+
                         close: {
                             type: "plain_text",
                             text: "Cancel"
                         },
+
                         blocks: [
                             {
                                 type: "input",
                                 block_id: "reason_block",
+
                                 label: {
                                     type: "plain_text",
                                     text: "Why"
                                 },
+
                                 element: {
                                     type: "plain_text_input",
                                     action_id: "reason",
-
                                     multiline: true,
+
                                     placeholder: {
                                         type: "plain_text",
-                                        text: "why?"
+                                        text: "Why?"
                                     }
                                 }
                             }
@@ -80,11 +82,11 @@ export default {
 
                 await respond({
                     response_type: "ephemeral",
-                    text: "join request sent! :yay:"
+                    text: "Join request sent! :yay:"
                 });
             }
         });
-        
+
         ctx.slack.app.view(
             "join404pc_request",
             async ({ ack, body, view }) => {
@@ -104,7 +106,7 @@ export default {
                                 stack: error.stack
                             }
                         },
-                        "Join request failed"
+                        "Join request submission failed"
                     );
                 }
             }
@@ -115,11 +117,23 @@ export default {
             async ({ ack, body }) => {
                 await ack();
 
-                await handleDecision(
-                    body,
-                    true,
-                    ctx
-                );
+                try {
+                    await handleDecision(
+                        body,
+                        true,
+                        ctx
+                    );
+                } catch (error) {
+                    ctx.logger.error(
+                        {
+                            error: {
+                                message: error.message,
+                                stack: error.stack
+                            }
+                        },
+                        "404PC approval failed"
+                    );
+                }
             }
         );
 
@@ -128,27 +142,54 @@ export default {
             async ({ ack, body }) => {
                 await ack();
 
-                await handleDecision(
-                    body,
-                    false,
-                    ctx
-                );
+                try {
+                    await handleDecision(
+                        body,
+                        false,
+                        ctx
+                    );
+                } catch (error) {
+                    ctx.logger.error(
+                        {
+                            error: {
+                                message: error.message,
+                                stack: error.stack
+                            }
+                        },
+                        "404PC denial failed"
+                    );
+                }
             }
         );
 
         ctx.slack.app.action(
-            "join400ers_ping",
+            "join404pc_ping",
             async ({ ack, body, respond }) => {
                 await ack();
-                await handlePingOptIn(
-                    body,
-                    respond,
-                    ctx
-                );
+
+                try {
+                    await handlePingOptIn(
+                        body,
+                        respond,
+                        ctx
+                    );
+                } catch (error) {
+                    ctx.logger.error(
+                        {
+                            error: {
+                                message: error.message,
+                                stack: error.stack
+                            }
+                        },
+                        "404PC ping opt-in failed"
+                    );
+                }
             }
         );
 
-        ctx.logger.info(`Join plugin initialized for ${ownerUserId}`);
+        ctx.logger.info(
+            `Join 404PC plugin initialized for ${ownerUserId}`
+        );
     }
 };
 
@@ -161,216 +202,342 @@ async function handleSubmission(
         JSON.parse(
             view.private_metadata
         );
+
     const requesterId =
         metadata.userId;
+
     const channelId =
         metadata.channelId;
-    
+
     const reason =
         view.state.values
             ?.reason_block
             ?.reason
             ?.value
             ?.trim();
+
     if (!reason) {
-        ctx.logger.warn(`Join request from ${requesterId} had no reason`);
+        ctx.logger.warn(
+            `Join request from ${requesterId} had no reason`
+        );
 
         return;
     }
 
     const ownerUserId =
-        ctx.state.get("join404pc.ownerUserId");
-    
+        ctx.state.get(
+            "join404pc.ownerUserId"
+        );
+
     const userInfo =
         await ctx.slack.userClient.users.info({
             user: requesterId
         });
+
     const user =
         userInfo.user;
+
     const displayName =
         user?.profile?.display_name ||
         user?.real_name ||
         user?.name ||
         requesterId;
 
-    await ctx.slack.userClient.chat.postMessage({
-        channel: ownerUserId,
+    const ownerDM =
+        await ctx.slack.userClient.conversations.open({
+            users: ownerUserId
+        });
 
-        text: `New join request from ${displayName}` +
+    const ownerChannelId =
+        ownerDM.channel?.id;
+
+    if (!ownerChannelId) {
+        throw new Error(
+            "Could not open DM with owner"
+        );
+    }
+
+    await ctx.slack.userClient.chat.postMessage({
+        channel: ownerChannelId,
+
+        text:
+            `New 404PC join request from ${displayName}.\n` +
             `Reason: ${reason}`,
-        
+
         blocks: [
             {
                 type: "header",
+
                 text: {
                     type: "plain_text",
-                    text: "New join request"
+                    text: "New 404PC Join Request"
                 }
             },
+
             {
                 type: "section",
+
                 fields: [
                     {
                         type: "mrkdwn",
-                        text: `*User:*\n<@${requesterId}>`
+                        text:
+                            `*User:*\n<@${requesterId}>`
                     },
+
                     {
                         type: "mrkdwn",
-                        text: `*Channel:*\n<#${channelId}>`
+                        text:
+                            `*Channel:*\n<#${channelId}>`
                     }
                 ]
             },
+
             {
                 type: "section",
+
                 text: {
                     type: "mrkdwn",
-                    text: `*Why:*\n${reason}`
+                    text:
+                        `*Why:*\n${reason}`
                 }
             },
+
             {
                 type: "actions",
-                elements : [
+
+                elements: [
                     {
                         type: "button",
+
                         text: {
                             type: "plain_text",
                             text: "Approve"
                         },
-                        style: "primary",
-                        action_id: "join404pc_approve",
 
-                        value: JSON.stringify({
-                            requesterId,
-                            channelId
-                        })
+                        style: "primary",
+
+                        action_id:
+                            "join404pc_approve",
+
+                        value:
+                            JSON.stringify({
+                                requesterId,
+                                channelId
+                            })
                     },
+
                     {
                         type: "button",
+
                         text: {
                             type: "plain_text",
                             text: "Deny"
                         },
+
                         style: "danger",
-                        action_id: "join404pc_deny",
-                        value: JSON.stringify({
-                            requesterId,
-                            channelId
-                        })
+
+                        action_id:
+                            "join404pc_deny",
+
+                        value:
+                            JSON.stringify({
+                                requesterId,
+                                channelId
+                            })
                     }
                 ]
             }
         ]
     });
-    ctx.logger.info (`Join request submitted by ${requesterId}`);
+
+    ctx.logger.info(
+        `Join request submitted by ${requesterId}`
+    );
 }
 
 async function handleDecision(
     body,
-    appproved,
+    approved,
     ctx
 ) {
     const ownerUserId =
-        ctx.state.get("join404pc.ownerUserId");
+        ctx.state.get(
+            "join404pc.ownerUserId"
+        );
+
     if (body.user?.id !== ownerUserId) {
         ctx.logger.warn(
-        {
-            user: body.user?.id
-        },
-    "Unauthorized join decision attempt"
+            {
+                user: body.user?.id
+            },
+            "Unauthorized join decision attempt"
         );
+
         return;
     }
 
-    const data = JSON.parse(
-        body.actions[0].value
-    );
+    const data =
+        JSON.parse(
+            body.actions[0].value
+        );
+
     const requesterId =
         data.requesterId;
-    const channelId = 
+
+    const channelId =
         data.channelId;
-    
-    if (!appproved) {
-        await ctx.slack.userClient.chat.postMessage({
-            channel: requesterId,
-            text: "Better luck next time. Your 404-p.c. join request was denied."
-        });
+
+    if (!approved) {
+        const requesterDM =
+            await ctx.slack.userClient.conversations.open({
+                users: requesterId
+            });
+
+        const requesterChannelId =
+            requesterDM.channel?.id;
+
+        if (requesterChannelId) {
+            await ctx.slack.userClient.chat.postMessage({
+                channel: requesterChannelId,
+
+                text:
+                    "Better luck next time. Your 404PC join request was denied."
+            });
+        }
 
         await ctx.slack.userClient.chat.update({
             channel: body.channel.id,
             ts: body.message.ts,
 
-            text: "404PC request denied",
+            text:
+                `404PC request denied for <@${requesterId}>.`,
+
             blocks: [
                 {
                     type: "section",
+
                     text: {
                         type: "mrkdwn",
-                        text: `:cross-red: <@${requesterId}>'s request to join denied.`
+
+                        text:
+                            `:x: <@${requesterId}>'s 404PC request was denied.`
                     }
                 }
             ]
         });
+
+        ctx.logger.info(
+            `404PC request denied for ${requesterId}`
+        );
+
         return;
     }
 
-await ctx.slack.userClient.conversations.invite({
-    channel: channelId,
-    users: requesterId
-});
+    await ctx.slack.userClient.conversations.invite({
+        channel: channelId,
+        users: requesterId
+    });
 
-await ctx.slack.userClient.chat.postMessage({
-    channel: channelId,
-    text: `Welcome <@${requesterId}>. This is 404place <@U083T3ZP6AV>'s personal channel/place!`,
-    blocks: [
-        {
-            type: "section",
-            text: {
-                type: "mrkdwn",
-                text: `Welcome <@${requesterId}>. This is 404place <@U083T3ZP6AV>'s personal channel/place!`
-            }
-        },
-        {
-            type: "section",
-            text: {
-                type: "mrkdwn",
-                text: `If you want notifications for 404ers pings, you can join the ping below!`
-            }
-        },
-        {
-            type: "actions",
-            text: {
-                type: "plain_text",
-                text: "Join 404ers ping group"
+    await ctx.slack.userClient.chat.postMessage({
+        channel: channelId,
+
+        text:
+            `Welcome <@${requesterId}> to 404PC!`,
+
+        blocks: [
+            {
+                type: "section",
+
+                text: {
+                    type: "mrkdwn",
+
+                    text:
+                        `:tada: Welcome <@${requesterId}>!\n\n` +
+                        `This is 404PC — my personal community/place.`
+                }
             },
-            style: "primary",
-            action_id: "join4040ers_ping",
-            value : requesterId
-        }
-    ]
-});
 
-await ctx.slack.userClient.chat.update({
-    channel: body.channel.id,
-    ts: body.message.ts,
-    text: `404-P.C. request approved for <@${requesterId}>`,
-    blocks: [
-        {
-            type: "section",
-            text: {
-                type: "mrkdwn",
-                text: `:tick: <@${requesterId} 404-P.C. request was approved!`
+            {
+                type: "section",
+
+                text: {
+                    type: "mrkdwn",
+
+                    text:
+                        `If you want notifications for 404PC pings, you can join the ping group below.`
+                }
+            },
+
+            {
+                type: "actions",
+
+                elements: [
+                    {
+                        type: "button",
+
+                        text: {
+                            type: "plain_text",
+
+                            text:
+                                "Join 404ers ping group"
+                        },
+
+                        style: "primary",
+
+                        action_id:
+                            "join404pc_ping",
+
+                        value:
+                            requesterId
+                    }
+                ]
             }
-        }
-    ]
-});
+        ]
+    });
 
-await ctx.slack.userClient.chat.postMessage({
-    channel: requesterId,
-    text: "Your 404PC request was approved. Welcome!"
-});
+    await ctx.slack.userClient.chat.update({
+        channel: body.channel.id,
+        ts: body.message.ts,
 
-ctx.logger.info(`404-P.C. request approved for <@${requesterId}>`);
+        text:
+            `404PC request approved for <@${requesterId}>.`,
+
+        blocks: [
+            {
+                type: "section",
+
+                text: {
+                    type: "mrkdwn",
+
+                    text:
+                        `:white_check_mark: <@${requesterId}>'s 404PC request was approved!`
+                }
+            }
+        ]
+    });
+
+    const requesterDM =
+        await ctx.slack.userClient.conversations.open({
+            users: requesterId
+        });
+
+    const requesterChannelId =
+        requesterDM.channel?.id;
+
+    if (requesterChannelId) {
+        await ctx.slack.userClient.chat.postMessage({
+            channel: requesterChannelId,
+
+            text:
+                "Your 404PC request was approved. Welcome!"
+        });
+    }
+
+    ctx.logger.info(
+        `404PC request approved for ${requesterId}`
+    );
 }
+
 async function handlePingOptIn(
     body,
     respond,
@@ -378,27 +545,39 @@ async function handlePingOptIn(
 ) {
     const requesterId =
         body.actions[0].value;
-    
+
     const clickingUserId =
         body.user?.id;
-    
-    if ( clickingUserId !== requesterId) {
+
+    if (
+        clickingUserId !==
+        requesterId
+    ) {
         await respond({
             response_type: "ephemeral",
-            text: `This button aint for u mate :loll:`
+
+            text:
+                "This button ain't for you, mate."
         });
+
         return;
     }
-    
+
     const userGroupId =
         process.env.S404ERS_GID;
 
     if (!userGroupId) {
-        ctx.logger.error(`The env variable is missing`);
+        ctx.logger.error(
+            "S404ERS_GID is missing"
+        );
+
         await respond({
             response_type: "ephemeral",
-            text: "The ping group is not configured yet."
+
+            text:
+                "The ping group is not configured yet."
         });
+
         return;
     }
 
@@ -409,8 +588,12 @@ async function handlePingOptIn(
 
     await respond({
         response_type: "ephemeral",
-        text: ":loll: Added u now get pinged!"
+
+        text:
+            ":white_check_mark: Added you to the 404ers ping group!"
     });
-    ctx.logger.info(`${requesterId} joined the 404ers ping group`);
-    
+
+    ctx.logger.info(
+        `${requesterId} joined the 404ers ping group`
+    );
 }
