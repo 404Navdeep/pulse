@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { LengthFinishReasonError } from "openai/error";
 
 export default {
     id: "ask",
@@ -11,7 +12,8 @@ export default {
         }
 
         const openai = new OpenAI({
-            apiKey: process.env.OPENAI_KEY
+            apiKey: process.env.OPENAI_KEY,
+            baseURL: process.env.AI_URL
         });
         ctx.slack.app.event(
             "app_mention",
@@ -48,10 +50,10 @@ export default {
                         workspaceContext
                     );
                     const response = await openai.responses.create({
-                        model: process.env.OPENAI_KEY ||
-                        "gpt-5.5",
+                        model: process.env.AI_MODEL ||
+                        "openai/gpt-5-mini:batch",
                         instructions: SYSTEM_PROMPT,
-                        imput: prompt
+                        input: prompt
                     });
                     const answer = response.output_text?.trim();
                     if (!answer) {
@@ -104,7 +106,7 @@ Rules:
 - Answer the actual question rather that describing your process.
 `;
 
-function clearMention(text) {
+function cleanMention(text) {
     if (!text) {
         return "";
     }
@@ -130,11 +132,17 @@ async function collectWorkspaceContext(
     }
 
     try {
-        const history = history.messages || [];
-        if (messages.lenght > 0) {
+        const historyResult = await client.conversations.history({
+            channel: event.channel,
+            limit: 100
+        });
+
+        const historyMessages = historyResult.messages || [];
+
+        if (historyMessages.length > 0) {
             sections.push(
-                formatMessage(
-                    messages,
+                formatMessages(
+                    historyMessages,
                     "Recent messages in the current channel"
                 )
             );
@@ -151,10 +159,11 @@ async function collectWorkspaceContext(
                 limit: 100
             });
 
-            const message = replies.messages || [];
-            if (messages.lenght > 0) {
+            const messages = replies.messages || [];
+
+            if (messages.length > 0) {
                 sections.push(
-                    formatMessage(
+                    formatMessages(
                         messages,
                         "Current thread"
                     )
@@ -165,33 +174,101 @@ async function collectWorkspaceContext(
         }
     }
 
-    try {
-        const channels = await getChannels(client);
-        sections.push(
-            formatChannels(channels)
-        );
-    } catch (error) {
-        ctx.logger.warn(`Could not get workspace channels: ${error.message}`);
-    }
-
     return sections.join("\n\n");
 }
+let channelCache = null;
+let channelCacheTime = 0;
 
+const CHANNEL_CACHE_TTL = 10 * 60 * 1000;
 async function getChannels(client) {
+    const now = Date.now();
+
+    if (
+        channelCache &&
+        now - channelCacheTime < CHANNEL_CACHE_TTL
+    ) {
+        return channelCache;
+    }
+
     const channels = [];
     let cursor;
+
     do {
-        const response = await client.conversations.list({
-            limit: 200,
-            cursor,
-            types: "public_channel, private_channel"
-        });
+        const response =
+            await client.conversations.list({
+                limit: 50,
+                cursor,
+                types: "public_channel,private_channel"
+            });
+
         channels.push(
-            ...OpenAI(response.channels || [])
+            ...(response.channels || [])
         );
-        cursor = response.response_metadata?.next_cursor;
+
+        cursor =
+            response.response_metadata?.next_cursor;
     } while (cursor);
+
+    channelCache = channels;
+    channelCacheTime = now;
 
     return channels;
 }
 
+function formatChannels(channels) {
+    if (!channels.length) {
+        return ""
+    }
+
+    const lines = channels.map(channel => {
+        const privacy = channel.is_private
+                        ? "private"
+                        : "public";
+        return (`<#${channel.id}>` + `(${privacy})`);
+    });
+
+    return(
+        "Workspace channels: \n" +
+        lines.join("\n")
+    );
+}
+
+function formatMessages(
+    messages,
+    title
+) {
+    const lines =
+        messages
+            .slice()
+            .reverse()
+            .map(message => {
+                const user =
+                message.user || "uknown";
+                const text = cleanSlackText(message.text || "");
+                if (!text) {
+                    return null;
+                }
+                return (`<@${user}>: ${text}`);
+            }).filter(Boolean);
+    if (!lines.length) {
+        return "";
+    }
+
+    return (`${title}:\n` + lines.join("\n"));
+}
+
+function cleanSlackText(text) {
+    return text
+        .replace(/<https?:\/\/[^>|]+(?:\|[^>]+)?>/g, "[link]").trim();
+}
+function buildPrompt(question, workspaceContext) {
+    return `
+    User question: 
+    ${question}
+
+    Relevant Slack workspace context:
+    ${workspaceContext || "No relevant workspace context was availaible."}
+
+    Answer the user's question using the context above.
+    `;
+}
