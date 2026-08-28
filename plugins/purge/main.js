@@ -24,7 +24,10 @@ export default {
                     });
                     return;
                 }
-                const amount = Number(command.text?.trim() || "10");
+                const args = command.text?.trim().split(/\s+/) || [];
+                const includeThreads = args.includes("--threads");
+                const amountArg = args.find(arg => /^\d+$/.test(arg));
+                const amount = Number(amountArg|| "10");
                 if (!Number.isInteger(amount) ||
                 amount < 1 ||
                 amount > 100) {
@@ -56,7 +59,14 @@ export default {
                         }
                     } while (cursor);
 
-                    const ownMessages = messages.filter(message => message.user === botUserId && message.ts).slice(0, amount);
+                    const ownMessages = messages
+                        .filter(
+                            message =>
+                                message.user === botUserId &&
+                                message.ts
+                        )
+                        .slice(0, amount);
+
                     if (!ownMessages.length) {
                         await respond({
                             response_type: "ephemeral",
@@ -64,11 +74,39 @@ export default {
                         });
 
                         return;
+                    }
 
+                    let messagesToDelete = [...ownMessages];
+
+                    if (includeThreads) {
+                        for (const parent of ownMessages) {
+                            try {
+                                const replies = await ctx.slack.botClient.conversations.replies({
+                                    channel: command.channel_id,
+                                    ts: parent.ts,
+                                    limit: 100
+                                });
+
+                                const ownReplies = (replies.messages || [])
+                                    .filter(
+                                        reply =>
+                                            reply.ts !== parent.ts &&
+                                            reply.user === botUserId &&
+                                            reply.ts
+                                    );
+
+                                messagesToDelete.push(...ownReplies);
+                            } catch (error) {
+                                ctx.logger.warn(
+                                    `Could not read replies for ${parent.ts}: ${error.message}`
+                                );
+                            }
+                        }
                     }
 
                     let deleted = 0;
-                    for (const message of ownMessages) {
+
+                    for (const message of messagesToDelete) {
                         try {
                             await ctx.slack.botClient.chat.delete({
                                 channel: command.channel_id,
@@ -77,7 +115,9 @@ export default {
 
                             deleted++;
                         } catch (error) {
-                            ctx.logger.warn(`Could not delete Pulse message ${message.ts}: ${error.message}`);
+                            ctx.logger.warn(
+                                `Could not delete Pulse message ${message.ts}: ${error.message}`
+                            );
                         }
                     }
 

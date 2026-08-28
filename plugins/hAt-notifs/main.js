@@ -3,7 +3,7 @@ import axios from "axios";
 let runtimeState = {
     date: null,
     startedSent: false,
-    oneHourSent: false,
+    projectHours: new Map(),
     languageSent: new Set(),
     checking: false
 };
@@ -143,30 +143,40 @@ async function checkHackatime(ctx) {
         }
 
         /*
-         * 1 hour -> project notification
+         * hour coded on a project -> project notification
          */
-        if (
-            totalSeconds > 3600 &&
-            !runtimeState.oneHourSent
-        ) {
-            const project =
-                getTopProject(
-                    data.projects
+        const projects = 
+            Array.isArray(data.projects)
+                ? data.projects
+                : [];
+        for (const project of projects) {
+            const name = project?.name;
+            const seconds = Number(project?.total_seconds || 0);
+            if (!name || seconds < 3600) {
+                continue;
+            }
+            const key = name.toLowerCase();
+            const lastSent = runtimeState.projectHours.get(key) || 0;
+            if (hours <= lastSent) {
+                continue;
+            }
+            for (let hour = lastSent + 1;
+                hour <= hours;
+                hour++
+            ) {
+                await sendNotification(ctx,
+                    `:mhm: ${hour}hr coded on ${name}!`
                 );
+                ctx.logger.info({
+                    project: name,
+                    hour,
+                    seconds
+                }, "Hackatime project hour notification sent");
+            }
 
-            await sendNotification(
-                ctx,
-                `:mhm: 1hr coded on ${project}!`
-            );
-
-            runtimeState.oneHourSent = true;
-
-            ctx.logger.info(
-                {
-                    project,
-                    totalSeconds
-                },
-                "Hackatime 1-hour notification sent"
+            runtimeState.projectHours.set(
+                key,
+                hours
             );
         }
 
@@ -233,8 +243,8 @@ async function checkHackatime(ctx) {
                 totalSeconds,
                 startedSent:
                     runtimeState.startedSent,
-                oneHourSent:
-                    runtimeState.oneHourSent,
+                projectHourNotification:
+                    runtimeState.projectHours.size,
                 languageNotifications:
                     runtimeState.languageSent.size
             },
@@ -249,35 +259,10 @@ function resetForToday() {
     runtimeState = {
         date: getDateKey(),
         startedSent: false,
-        oneHourSent: false,
+        projectHours: new Map(),
         languageSent: new Set(),
         checking: false
     };
-}
-
-function getTopProject(projects) {
-    if (
-        !Array.isArray(projects) ||
-        projects.length === 0
-    ) {
-        return "your project";
-    }
-
-    const sorted =
-        [...projects].sort(
-            (a, b) =>
-                Number(
-                    b?.total_seconds || 0
-                ) -
-                Number(
-                    a?.total_seconds || 0
-                )
-        );
-
-    return (
-        sorted[0]?.name ||
-        "your project"
-    );
 }
 
 function normaliseLanguage(language) {
