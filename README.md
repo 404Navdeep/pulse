@@ -25,7 +25,7 @@ Planned Commands
 > An AI to answer your questions.
 ### Classroom Notifs
 > Should take GCR announcements convert them into single or double line messages and then send them to the channel for me to view because I;m getting lazy!
-
+test
 ## .env Example:
 ```
 SLACK_BOT_TOKEN=
