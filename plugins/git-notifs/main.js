@@ -1,7 +1,7 @@
 export default {
     id: "git-notifs",
     name: "Git Notifications",
-    version: "0.2.0",
+    version: "0.3.0",
 
     async init(ctx) {
         const username =
@@ -17,7 +17,7 @@ export default {
         }
 
         const stateKey =
-            "githubNotifications.seen";
+            "githubNotifications.seen.v3";
 
         if (!ctx.state.get(stateKey)) {
             ctx.state.set(
@@ -49,10 +49,11 @@ export default {
 
         await poll();
 
-        const interval = setInterval(
-            poll,
-            60 * 1000
-        );
+        const interval =
+            setInterval(
+                poll,
+                60 * 1000
+            );
 
         ctx.state.set(
             "githubNotifications.interval",
@@ -64,6 +65,7 @@ export default {
         );
     }
 };
+
 
 async function checkGithubEvents(
     username,
@@ -83,7 +85,8 @@ async function checkGithubEvents(
                         "2022-11-28",
 
                     "User-Agent":
-                        "Pulse Git Notifications"
+                        "Pulse Git Notifications",
+                    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`
                 }
             }
         );
@@ -103,19 +106,35 @@ async function checkGithubEvents(
         );
     }
 
+    ctx.logger.info(
+        {
+            count: events.length
+        },
+        "Github events received"
+    );
+
     const seen =
         ctx.state.get(stateKey) ||
         new Set();
 
+    const now = Date.now();
+    const oneHourAgo = now - (60 * 60 * 1000);
+    let firstRun = true;
+
     const newEvents = [];
 
     for (const event of events) {
+        if (!event?.id) {
+            continue;
+        }
+
         if (
             event.actor?.login?.toLowerCase() !==
             username.toLowerCase()
         ) {
             continue;
         }
+
         if (
             event.type !== "PushEvent" &&
             event.type !== "CreateEvent"
@@ -123,38 +142,75 @@ async function checkGithubEvents(
             continue;
         }
 
-        if (!event.id) {
-            continue;
-        }
-
         if (seen.has(event.id)) {
             continue;
         }
 
+        if (firstRun) {
+            const eventTime =
+                new Date(event.created_at).getTime();
+
+            if (
+                Number.isNaN(eventTime) ||
+                eventTime < oneHourAgo
+            ) {
+                seen.add(event.id);
+                continue;
+            }
+        }
+        
         newEvents.push(event);
-    }
+        }
+    ctx.logger.info(
+        {
+            count: newEvents.length,
+            events: newEvents.map(event => ({
+                id: event.id,
+                type: event.type,
+                repo: event.repo?.name
+            }))
+        },
+        "Github new notification events"
+    );
 
     newEvents.reverse();
 
     for (const event of newEvents) {
-        if (event.type === "PushEvent") {
-            await handlePushEvent(
-                event,
-                channelId,
-                ctx
+        try {
+            if (event.type === "PushEvent") {
+                await handlePushEvent(
+                    event,
+                    channelId,
+                    ctx
+                );
+            }
+
+            if (event.type === "CreateEvent") {
+                await handleCreateEvent(
+                    event,
+                    channelId,
+                    ctx
+                );
+            }
+
+            seen.add(event.id);
+
+        } catch (error) {
+            ctx.logger.error(
+                {
+                    eventId: event.id,
+                    eventType: event.type,
+                    repo: event.repo?.name,
+                    error: {
+                        message: error.message,
+                        stack: error.stack
+                    }
+                },
+                "Failed to process Github event"
             );
         }
-
-        if (event.type === "CreateEvent") {
-            await handleCreateEvent(
-                event,
-                channelId,
-                ctx
-            );
-        }
-
-        seen.add(event.id);
     }
+    firstRun = false;
 
     ctx.state.set(
         stateKey,
@@ -162,67 +218,146 @@ async function checkGithubEvents(
     );
 }
 
+
 async function handlePushEvent(
     event,
     channelId,
     ctx
 ) {
-    const commits =
-        event.payload?.commits;
-
-    if (!Array.isArray(commits)) {
-        return;
-    }
-
     const repo =
         event.repo?.name;
 
-    if (!repo) {
+    const before =
+        event.payload?.before;
+
+    const head =
+        event.payload?.head;
+
+    if (!repo || !head) {
+        ctx.logger.warn(
+            {
+                eventId: event.id,
+                repo
+            },
+            "Github PushEvent missing commit information"
+        );
         return;
     }
 
-    const seen =
-        ctx.state.get(
-            "githubNotifications.seen"
-        ) || new Set();
+    ctx.logger.info(
+        {
+            eventId: event.id,
+            repo,
+            before,
+            head
+        },
+        "Fetching commits for Github push"
+    );
+
+    const response =
+        await fetch(
+            `https://api.github.com/repos/${repo}/compare/${before}...${head}`,
+            {
+                headers: {
+                    Accept:
+                        "application/vnd.github+json",
+
+                    "X-GitHub-Api-Version":
+                        "2022-11-28",
+
+                    "User-Agent":
+                        "Pulse Git Notifications",
+                    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`
+                }
+            }
+        );
+
+    if (!response.ok) {
+        throw new Error(
+            `Github compare API returned ${response.status} ${response.statusText}`
+        );
+    }
+
+    const data =
+        await response.json();
+
+    const commits =
+        Array.isArray(data.commits)
+            ? data.commits
+            : [];
+
+    if (commits.length === 0) {
+        ctx.logger.info(
+            {
+                eventId: event.id,
+                repo
+            },
+            "Github push contained no commits"
+        );
+        return;
+    }
+
+    const lines = [];
 
     for (const commit of commits) {
-        if (!commit?.sha) {
-            continue;
-        }
+        const sha =
+            commit.sha;
 
-        const commitKey =
-            `commit:${commit.sha}`;
-
-        if (seen.has(commitKey)) {
+        if (!sha) {
             continue;
         }
 
         const commitUrl =
-            `https://github.com/${repo}/commit/${commit.sha}`;
+            `https://github.com/${repo}/commit/${sha}`;
 
-        const text =
-            `New commit <${commitUrl}|${commit.sha}> to ${repo} by 404Navdeep`;
+        const shortSha =
+            sha.slice(0, 7);
 
-        await ctx.slack.botClient.chat.postMessage({
-            channel: channelId,
-            text,
-            unfurl_links: false,
-            unfurl_media: false
-        });
+        const message =
+            commit.commit?.message
+                ?.split("\n")[0]
+                ?.trim() ||
+            "No commit message";
 
-        seen.add(commitKey);
-
-        ctx.logger.info(
-            `Github commit notification sent: ${repo}@${commit.sha}`
+        lines.push(
+            `• <${commitUrl}|${shortSha}> — ${message}`
         );
     }
 
-    ctx.state.set(
-        "githubNotifications.seen",
-        seen
+    if (lines.length === 0) {
+        return;
+    }
+
+    const text =
+        `New commit${lines.length === 1 ? "" : "s"} to ${repo} by 404Navdeep\n` +
+        lines.join("\n");
+
+    ctx.logger.info(
+        {
+            eventId: event.id,
+            repo,
+            commitCount: lines.length
+        },
+        "Sending Github push notification"
+    );
+
+    await ctx.slack.botClient.chat.postMessage({
+        channel: channelId,
+        text,
+        unfurl_links: false,
+        unfurl_media: false
+    });
+
+    ctx.logger.info(
+        {
+            eventId: event.id,
+            repo,
+            commitCount: lines.length
+        },
+        "Github push notification sent"
     );
 }
+
 
 async function handleCreateEvent(
     event,
@@ -249,14 +384,27 @@ async function handleCreateEvent(
     const text =
         `Created repository <${repoUrl}|${repo}>`;
 
-    await ctx.slack.botClient.chat.postMessage({
-        channel: channelId,
-        text,
-        unfurl_links: false,
-        unfurl_media: false
-    });
+    ctx.logger.info(
+        {
+            repo,
+            eventId: event.id
+        },
+        "Sending Github repository notification"
+    );
+
+    const result =
+        await ctx.slack.botClient.chat.postMessage({
+            channel: channelId,
+            text,
+            unfurl_links: false,
+            unfurl_media: false
+        });
 
     ctx.logger.info(
-        `Github repo creation notification sent: ${repo}`
+        {
+            ts: result.ts,
+            repo
+        },
+        "Github repository notification sent"
     );
 }

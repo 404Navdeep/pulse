@@ -151,8 +151,9 @@ async function checkHackatime(ctx) {
                 : [];
         for (const project of projects) {
             const name = project?.name;
-            const seconds = Number(project?.total_seconds || 0);
-            if (!name || seconds < 3600) {
+            const projectSeconds  = Number(project?.total_seconds || 0);
+            const hours = Math.floor(projectSeconds / 3600);
+            if (hours < 1) {
                 continue;
             }
             const key = name.toLowerCase();
@@ -170,7 +171,7 @@ async function checkHackatime(ctx) {
                 ctx.logger.info({
                     project: name,
                     hour,
-                    seconds
+                    projectSeconds
                 }, "Hackatime project hour notification sent");
             }
 
