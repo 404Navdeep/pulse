@@ -5,7 +5,7 @@ export default {
 
     async init(ctx) {
         ctx.commands.register({
-            name: "ping",
+            name: "p-ping",
             description: "Check Pulse's response time",
 
             async execute({

@@ -22,7 +22,7 @@ export default {
         );
 
         ctx.commands.register({
-            name: "underthedms",
+            name: "p-underthedms",
             description: "Toggle Under the DMs",
             ownerOnly: true,
 

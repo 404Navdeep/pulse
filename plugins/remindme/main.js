@@ -18,7 +18,7 @@ export default {
         );
 
         ctx.commands.register({
-            name: "remindme",
+            name: "p-remindme",
             description: "Set a reminder",
             ownerOnly: true,
 

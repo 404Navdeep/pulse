@@ -15,7 +15,7 @@ export default {
             notifiedUsers: new Set()
         });
         ctx.commands.register({
-            name: "afk",
+            name: "p-afk",
             description: "Enable AFK mode",
             ownerOnly: true,
 
@@ -46,7 +46,7 @@ export default {
 
 
         ctx.commands.register({
-            name: "awake",
+            name: "p-awake",
             description: "Disable AFK mode",
             ownerOnly: true,
 

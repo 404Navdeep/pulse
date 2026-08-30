@@ -13,7 +13,7 @@ export default {
 
     async init(ctx) {
         ctx.commands.register({
-            name: "weather",
+            name: "p-weather",
             description: "Get Srinagar weather",
 
             async execute({

@@ -5,7 +5,7 @@ export default {
 
     async init(ctx) {
         ctx.commands.register({
-            name: "purge",
+            name: "p-purge",
             description: "Dlete Pulse's recent messages",
             usage_hint: "[number]",
 
