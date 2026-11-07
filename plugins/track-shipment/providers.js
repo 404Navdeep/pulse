@@ -142,9 +142,17 @@ const T17_STATUS = {
     Exception: "exception"
 };
 
+// 17TRACK carrier keys for couriers we pin instead of auto-detecting.
+const T17_CARRIERS = { fedex: 100003 };
+
 export const track17 = {
     id: "17track",
     name: "17TRACK",
+
+    item(number, shipment) {
+        const carrier = T17_CARRIERS[shipment?.courierSlug];
+        return carrier ? { number, carrier } : { number };
+    },
 
     enabled() {
         return Boolean(process.env.TRACK17_API_KEY);
@@ -179,7 +187,7 @@ export const track17 = {
         if ((await this.quotaRemaining()) <= 0) {
             throw new ProviderError("17TRACK quota used up", { quota: true });
         }
-        const data = await this.call("/register", [{ number: trackingNumber }]);
+        const data = await this.call("/register", [this.item(trackingNumber, shipment)]);
         const rejected = data?.rejected?.[0];
         if (rejected && !/already/i.test(rejected.error?.message ?? "")) {
             const msg = rejected.error?.message ?? "rejected";
@@ -196,7 +204,7 @@ export const track17 = {
     },
 
     async fetch(shipment) {
-        const data = await this.call("/gettrackinfo", [{ number: shipment.ref }]);
+        const data = await this.call("/gettrackinfo", [this.item(shipment.ref, shipment)]);
         const info = data?.accepted?.[0]?.track_info;
         const provider = info?.tracking?.providers?.[0];
         const events = (provider?.events ?? []).map(e => ({

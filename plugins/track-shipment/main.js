@@ -40,6 +40,9 @@ const USAGE =
 let store = { shipments: {}, lastQueueRetry: 0 };
 let polling = false;
 let couriers = new Map(); // normalised slug/name -> { slug, name }
+let tcSlugs = new Set();  // slugs trackcourier.io supports
+
+const EXTRA_COURIERS = [{ slug: "fedex", name: "FedEx" }];
 
 export default {
     id: "track-shipment",
@@ -152,6 +155,12 @@ async function handleCommand(input, respond, ctx) {
     if (result.invalid) {
         return reply(`:x: Couldn't track \`${number}\`: ${result.reason}`);
     }
+    if (result.queued && !result.reasons.length) {
+        return reply(
+            `:x: No provider can track ${courier?.name ?? "this courier"} right now. ` +
+            "It needs 17TRACK, so add `TRACK17_API_KEY` to `.env`."
+        );
+    }
 
     store.shipments[number] = shipment;
     await save();
@@ -202,7 +211,10 @@ async function loadCouriers(ctx) {
         }
     }
     couriers = new Map();
-    for (const c of list) {
+    tcSlugs = new Set(list.map(c => c.slug));
+    // Couriers trackcourier.io may not cover; these fall through to 17TRACK.
+    for (const c of [...list, ...EXTRA_COURIERS]) {
+        if (couriers.has(courierKey(c.slug))) continue;
         couriers.set(courierKey(c.slug), c);
         couriers.set(courierKey(c.name), c);
     }
@@ -213,7 +225,7 @@ async function registerShipment(shipment, ctx) {
     const reasons = [];
     for (const provider of PROVIDERS) {
         if (!provider.enabled()) continue;
-        if (provider.needsCourier && !shipment.courierSlug) continue;
+        if (provider.needsCourier && !tcSlugs.has(shipment.courierSlug)) continue;
         try {
             const { ref, info } = await provider.register(shipment);
             shipment.provider = provider.id;
