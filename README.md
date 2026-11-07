@@ -31,6 +31,9 @@ Delet the bots messages, in specific channels. Use -threads to delete thread mes
 ### Remind Me
 A slach command that works like slack reminders but dm's me instead and probably has more chances of missing it
 
+### Track Shipment
+`/p-track [courier] <tracking id> [label]` to start tracking a parcel (courier can be left out for India Post IDs), `/p-track list` to see them all and `/p-track remove <id>` to stop. Checks every 30 min and posts a Block Kit update in my personal channel whenever something changes. Uses trackcourier.io first (25 free shipments, re-checks are free) and falls back to 17TRACK's free trial when those run out; if both are full, new IDs wait in a queue.
+
 ### Under The DMs
 Respond to all the dms with a message stating that you are under the dms a.k.a. Flooded with dms
 
@@ -75,6 +78,8 @@ AI_MODEL=
 OPENAI_KEY=
 AI_URL=
 GITHUB_TOKEN=
+TRACKCOURIER_API_KEY=
+TRACK17_API_KEY=
 ```
 ## Conclusion
 Thats pulse till now! Checkout in my personal channel!
