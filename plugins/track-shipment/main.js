@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { PROVIDERS, providerById, trackcourier } from "./providers.js";
 
-const POLL_MS = 30 * 60 * 1000;          // check active shipments every 30 min
+const POLL_MS = 60 * 1000;               // check active shipments every minute
 const QUEUE_RETRY_MS = 6 * 60 * 60 * 1000; // retry queued IDs every 6 h
 const MAX_EVENTS_SHOWN = 5;
 const DATA_FILE = path.resolve("data", "shipments.json");
