@@ -1,3 +1,31 @@
+import {
+    context,
+    fields,
+    footer,
+    header,
+    meter,
+    notice,
+    when
+} from "../../core/ui.js";
+
+// `card` puts its text above the coloured stripe; here the text should only be
+// the notification fallback, so move it onto the attachment.
+function stripe(message) {
+    const { text, attachments, ...rest } = message;
+    return {
+        ...rest,
+        attachments: attachments.map(a => ({ ...a, fallback: text ?? a.fallback }))
+    };
+}
+
+// Total round-trip -> dot colour, verdict and a speed meter (0 ms full, 2 s empty).
+function grade(totalTime) {
+    const score = 1 - Math.min(totalTime, 2000) / 2000;
+    if (totalTime < 400) return { dot: "🟢", verdict: "Snappy", score };
+    if (totalTime < 1000) return { dot: "🟡", verdict: "Okay", score };
+    return { dot: "🔴", verdict: "Sluggish", score };
+}
+
 export default {
     id: "ping",
     name: "Ping",
@@ -26,7 +54,7 @@ export default {
                     const message =
                         await ctx.slack.botClient.chat.postMessage({
                             channel: command.channel_id,
-                            text: ":ping_pong-wx: Pong!"
+                            text: ":ping_pong-wx: Pinging…"
                         });
 
                     const slackTime = Math.round(
@@ -49,7 +77,20 @@ export default {
                             `:ping_pong-wx: Pong!\n` +
                             `:fastchip_nobg: Pulse: \`${pulseTime}ms\`\n` +
                             `:slack-gold: Slack: \`${slackTime}ms\`\n` +
-                            `:time-zone-fyi:  Total: \`${totalTime}ms\``
+                            `:time-zone-fyi:  Total: \`${totalTime}ms\``,
+
+                        blocks: [
+                            header("Pong!", "🏓"),
+                            fields([
+                                [":fastchip_nobg: Pulse", `\`${pulseTime} ms\``],
+                                [":slack-gold: Slack", `\`${slackTime} ms\``],
+                                [":time-zone-fyi: Total", `\`${totalTime} ms\``]
+                            ]),
+                            context(
+                                `${grade(totalTime).dot}  ${meter(grade(totalTime).score)}  *${grade(totalTime).verdict}*`
+                            ),
+                            footer("Ping", `measured ${when(Date.now(), "{time_secs}")}`)
+                        ]
                     });
 
                     ctx.logger.info(
@@ -74,10 +115,11 @@ export default {
                         "Ping failed"
                     );
 
-                    await respond({
-                        response_type: "ephemeral",
-                        text: ":x: Couldnt do the pong"
-                    });
+                    await respond(stripe(notice(
+                        "error",
+                        "Couldn't do the pong.",
+                        { hint: "Check Pulse's logs for details." }
+                    )));
                 }
             }
         });

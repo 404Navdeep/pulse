@@ -1,3 +1,8 @@
+import {
+    COLORS, card, header, section, context, divider, footer,
+    actions, button, esc, clamp, when, dots
+} from "../../core/ui.js";
+
 export default {
     id: "git-notifs",
     name: "Git Notifications",
@@ -298,6 +303,7 @@ async function handlePushEvent(
     }
 
     const lines = [];
+    const rows = [];
 
     for (const commit of commits) {
         const sha =
@@ -322,6 +328,17 @@ async function handlePushEvent(
         lines.push(
             `• <${commitUrl}|${shortSha}> — ${message}`
         );
+
+        rows.push({
+            commitUrl,
+            shortSha,
+            message,
+            author:
+                commit.commit?.author?.name ||
+                commit.author?.login ||
+                null,
+            date: commit.commit?.author?.date || null
+        });
     }
 
     if (lines.length === 0) {
@@ -331,6 +348,19 @@ async function handlePushEvent(
     const text =
         `New commit${lines.length === 1 ? "" : "s"} to ${repo} by 404Navdeep\n` +
         lines.join("\n");
+
+    const compareUrl =
+        before
+            ? `https://github.com/${repo}/compare/${before}...${head}`
+            : `https://github.com/${repo}/commit/${head}`;
+
+    const pushMessage = buildPushMessage({
+        repo,
+        rows,
+        compareUrl,
+        branch: event.payload?.ref?.replace(/^refs\/heads\//, "") || null,
+        text
+    });
 
     ctx.logger.info(
         {
@@ -343,7 +373,7 @@ async function handlePushEvent(
 
     await ctx.slack.botClient.chat.postMessage({
         channel: channelId,
-        text,
+        ...pushMessage,
         unfurl_links: false,
         unfurl_media: false
     });
@@ -356,6 +386,51 @@ async function handlePushEvent(
         },
         "Github push notification sent"
     );
+}
+
+const MAX_COMMITS_SHOWN = 8;
+
+function buildPushMessage({ repo, rows, compareUrl, branch, text }) {
+    const count = rows.length;
+    const repoName = repo.split("/").pop();
+    const shown = rows.slice(0, MAX_COMMITS_SHOWN);
+
+    const blocks = [
+        header(`${count} new commit${count === 1 ? "" : "s"} · ${repoName}`, "🚀"),
+        context(
+            dots(
+                `<https://github.com/${repo}|${esc(repo)}>`,
+                branch && `:twisted_rightwards_arrows: \`${esc(branch)}\``
+            )
+        ),
+        divider()
+    ];
+
+    for (const row of shown) {
+        blocks.push(
+            section(
+                `\`<${row.commitUrl}|${row.shortSha}>\`  ${esc(clamp(row.message, 200))}`
+            )
+        );
+        const meta = dots(
+            row.author && `:bust_in_silhouette: ${esc(row.author)}`,
+            row.date && when(row.date)
+        );
+        if (meta) blocks.push(context(meta));
+    }
+
+    if (count > shown.length) {
+        blocks.push(
+            context(`+${count - shown.length} more commit${count - shown.length === 1 ? "" : "s"}`)
+        );
+    }
+
+    blocks.push(
+        actions(button("View changes", "git_view_changes", { url: compareUrl })),
+        footer("Git", "404Navdeep pushed to GitHub")
+    );
+
+    return card({ text, blocks, color: COLORS.success });
 }
 
 
@@ -384,6 +459,18 @@ async function handleCreateEvent(
     const text =
         `Created repository <${repoUrl}|${repo}>`;
 
+    const message = card({
+        text,
+        color: COLORS.brand,
+        blocks: [
+            header(`New repository · ${repo.split("/").pop()}`, "✨"),
+            section(`Created <${repoUrl}|*${esc(repo)}>*`),
+            context(when(event.created_at)),
+            actions(button("Open repository", "git_open_repo", { url: repoUrl })),
+            footer("Git", "404Navdeep created a repository")
+        ]
+    });
+
     ctx.logger.info(
         {
             repo,
@@ -395,7 +482,7 @@ async function handleCreateEvent(
     const result =
         await ctx.slack.botClient.chat.postMessage({
             channel: channelId,
-            text,
+            ...message,
             unfurl_links: false,
             unfurl_media: false
         });

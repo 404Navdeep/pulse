@@ -1,3 +1,37 @@
+import {
+    COLORS,
+    actions,
+    button,
+    card,
+    clamp,
+    context,
+    divider,
+    esc,
+    fields,
+    footer,
+    header,
+    notice,
+    section,
+    when
+} from "../../core/ui.js";
+
+const PLUGIN = "Join 404PC";
+
+// `card` puts its text above the coloured stripe; here the text should only be
+// the notification fallback, so move it onto the attachment.
+function stripe(message, { ephemeral = true } = {}) {
+    const { text, attachments, response_type, ...rest } = message;
+    return {
+        ...rest,
+        ...(ephemeral && response_type ? { response_type } : {}),
+        attachments: attachments.map(a => ({ ...a, fallback: text ?? a.fallback }))
+    };
+}
+
+// Quote a block of user text so it reads as "their words".
+const quote = text =>
+    esc(text).split("\n").map(line => `> ${line}`).join("\n");
+
 export default {
     id: "join-404pc",
     name: "Join 404-PC",
@@ -61,7 +95,7 @@ export default {
 
                         submit: {
                             type: "plain_text",
-                            text: "Submit"
+                            text: "Send request"
                         },
 
                         close: {
@@ -70,13 +104,18 @@ export default {
                         },
 
                         blocks: [
+                            section(
+                                ":wave:  *Want in?*\n" +
+                                "404PC is my personal corner of Slack. " +
+                                "Tell me a bit about yourself and I'll take a look."
+                            ),
                             {
                                 type: "input",
                                 block_id: "reason_block",
 
                                 label: {
                                     type: "plain_text",
-                                    text: "Why"
+                                    text: "Why do you want to join?"
                                 },
 
                                 element: {
@@ -86,18 +125,20 @@ export default {
 
                                     placeholder: {
                                         type: "plain_text",
-                                        text: "Why do you want to join?"
+                                        text: "Who are you and what brings you to 404PC?"
                                     }
                                 }
-                            }
+                            },
+                            context("Your request goes straight to my DMs. You'll hear back from me here.")
                         ]
                     }
                 });
 
-                await respond({
-                    response_type: "ephemeral",
-                    text: "Join request sent!"
-                });
+                await respond(stripe(notice(
+                    "info",
+                    "Fill in the form to send your join request.",
+                    { hint: "Nothing is sent until you press *Send request*." }
+                )));
             }
         });
 
@@ -206,6 +247,21 @@ export default {
     }
 };
 
+// Rebuilds the owner's request message after a decision: keeps the request
+// details, drops the buttons, and adds who decided and when.
+function decidedBlocks(body, { emoji, verdict, ownerId }) {
+    const original = (body.message?.blocks ?? []).filter(
+        block => block.type !== "actions" && block.type !== "context"
+    );
+
+    return [
+        ...original,
+        divider(),
+        section(`${emoji}  ${verdict}`),
+        footer(PLUGIN, `decided by <@${ownerId}>  ·  ${when(Date.now())}`)
+    ].slice(0, 50);
+}
+
 async function handleSubmission(
     body,
     view,
@@ -280,86 +336,28 @@ async function handleSubmission(
             `Reason: ${reason}`,
 
         blocks: [
-            {
-                type: "header",
+            header("New join request", "📬"),
 
-                text: {
-                    type: "plain_text",
-                    text: "New 404PC Join Request"
-                }
-            },
+            fields([
+                ["Requester", `<@${requesterId}>`],
+                ["Destination", `<#${channelId}>`],
+                ["Sent", when(Date.now())]
+            ]),
 
-            {
-                type: "section",
+            section(`*Why they want in*\n${quote(clamp(reason, 2800))}`),
 
-                fields: [
-                    {
-                        type: "mrkdwn",
-                        text:
-                            `*User:*\n<@${requesterId}>`
-                    },
+            actions(
+                button("Approve", "join404pc_approve", {
+                    style: "primary",
+                    value: JSON.stringify({ requesterId })
+                }),
+                button("Deny", "join404pc_deny", {
+                    style: "danger",
+                    value: JSON.stringify({ requesterId })
+                })
+            ),
 
-                    {
-                        type: "mrkdwn",
-                        text:
-                            `*Destination:*\n<#${channelId}>`
-                    }
-                ]
-            },
-
-            {
-                type: "section",
-
-                text: {
-                    type: "mrkdwn",
-                    text:
-                        `*Why:*\n${reason}`
-                }
-            },
-
-            {
-                type: "actions",
-
-                elements: [
-                    {
-                        type: "button",
-
-                        text: {
-                            type: "plain_text",
-                            text: "Approve"
-                        },
-
-                        style: "primary",
-
-                        action_id:
-                            "join404pc_approve",
-
-                        value:
-                            JSON.stringify({
-                                requesterId
-                            })
-                    },
-
-                    {
-                        type: "button",
-
-                        text: {
-                            type: "plain_text",
-                            text: "Deny"
-                        },
-
-                        style: "danger",
-
-                        action_id:
-                            "join404pc_deny",
-
-                        value:
-                            JSON.stringify({
-                                requesterId
-                            })
-                    }
-                ]
-            }
+            footer(PLUGIN, "Approving invites them to the channel")
         ]
     });
 
@@ -415,8 +413,17 @@ async function handleDecision(
             await ctx.slack.botClient.chat.postMessage({
                 channel: requesterChannelId,
 
-                text:
-                    "Better luck next time. Your 404PC join request was denied."
+                ...stripe(card({
+                    text: "Better luck next time. Your 404PC join request was denied.",
+                    color: COLORS.neutral,
+                    blocks: [
+                        section(
+                            ":lock:  *Your 404PC request wasn't approved this time.*\n" +
+                            "Better luck next time!"
+                        ),
+                        footer(PLUGIN, "Decision from the owner")
+                    ]
+                }), { ephemeral: false })
             });
         }
 
@@ -427,18 +434,11 @@ async function handleDecision(
             text:
                 `404PC request denied for <@${requesterId}>.`,
 
-            blocks: [
-                {
-                    type: "section",
-
-                    text: {
-                        type: "mrkdwn",
-
-                        text:
-                            `:x: <@${requesterId}>'s 404PC request was denied.`
-                    }
-                }
-            ]
+            blocks: decidedBlocks(body, {
+                emoji: ":x:",
+                verdict: `*Denied* — <@${requesterId}> was not added to 404PC.`,
+                ownerId: body.user.id
+            })
         });
 
         ctx.logger.info(
@@ -460,53 +460,28 @@ async function handleDecision(
             `Welcome <@${requesterId}> to 404PC!`,
 
         blocks: [
-            {
-                type: "section",
+            header("Welcome to 404PC", "🎉"),
 
-                text: {
-                    type: "mrkdwn",
+            section(
+                `Hey <@${requesterId}>, glad you're here!\n` +
+                "This is *404PC*, my personal community and corner of Slack."
+            ),
 
-                    text:
-                        `:tada: Welcome <@${requesterId}>!\n\n` +
-                        `This is 404PC — my personal community/place.`
-                }
-            },
+            divider(),
 
-            {
-                type: "section",
+            section(
+                ":bell:  *Want pings?*\n" +
+                "Join the ping group to get notified when something happens in 404PC."
+            ),
 
-                text: {
-                    type: "mrkdwn",
+            actions(
+                button("Join 404ers ping group", "join404pc_ping", {
+                    style: "primary",
+                    value: requesterId
+                })
+            ),
 
-                    text:
-                        `If you want notifications for 404PC pings, you can join the ping group below.`
-                }
-            },
-
-            {
-                type: "actions",
-
-                elements: [
-                    {
-                        type: "button",
-
-                        text: {
-                            type: "plain_text",
-
-                            text:
-                                "Join 404ers ping group"
-                        },
-
-                        style: "primary",
-
-                        action_id:
-                            "join404pc_ping",
-
-                        value:
-                            requesterId
-                    }
-                ]
-            }
+            footer(PLUGIN, `only <@${requesterId}> can use the button`)
         ]
     });
 
@@ -517,18 +492,11 @@ async function handleDecision(
         text:
             `404PC request approved for <@${requesterId}>.`,
 
-        blocks: [
-            {
-                type: "section",
-
-                text: {
-                    type: "mrkdwn",
-
-                    text:
-                        `:white_check_mark: <@${requesterId}>'s 404PC request was approved!`
-                }
-            }
-        ]
+        blocks: decidedBlocks(body, {
+            emoji: ":white_check_mark:",
+            verdict: `*Approved* — <@${requesterId}> has been added to <#${channelId}>.`,
+            ownerId: body.user.id
+        })
     });
 
     const requesterDM =
@@ -543,8 +511,17 @@ async function handleDecision(
         await ctx.slack.botClient.chat.postMessage({
             channel: requesterChannelId,
 
-            text:
-                "Your 404PC request was approved. Welcome!"
+            ...stripe(card({
+                text: "Your 404PC request was approved. Welcome!",
+                color: COLORS.success,
+                blocks: [
+                    section(
+                        ":tada:  *You're in!*\n" +
+                        `Your 404PC request was approved. Head over to <#${channelId}> and say hi.`
+                    ),
+                    footer(PLUGIN, "Decision from the owner")
+                ]
+            }), { ephemeral: false })
         });
     }
 
@@ -578,8 +555,11 @@ async function handlePingOptIn(
         await ctx.slack.botClient.chat.postEphemeral({
             channel: body.channel.id,
             user: clickingUserId,
-            text:
-                "This button ain't for you, mate."
+            ...stripe(notice(
+                "warning",
+                "This button ain't for you, mate.",
+                { hint: "It only works for the person who was just welcomed." }
+            ), { ephemeral: false })
         });
 
         ctx.logger.info(
@@ -600,8 +580,11 @@ async function handlePingOptIn(
         await ctx.slack.botClient.chat.postEphemeral({
             channel: body.channel.id,
             user: clickingUserId,
-            text:
-                "The ping group is not configured yet."
+            ...stripe(notice(
+                "error",
+                "The ping group is not configured yet.",
+                { hint: "Ask the owner to set the ping group." }
+            ), { ephemeral: false })
         });
 
         return;
@@ -615,8 +598,11 @@ async function handlePingOptIn(
     await ctx.slack.botClient.chat.postEphemeral({
         channel: body.channel.id,
         user: clickingUserId,
-        text:
-            ":white_check_mark: Added you to the 404ers ping group!"
+        ...stripe(notice(
+            "success",
+            "Added you to the 404ers ping group!",
+            { hint: "You'll now get notified on 404PC pings." }
+        ), { ephemeral: false })
     });
 
     ctx.logger.info(

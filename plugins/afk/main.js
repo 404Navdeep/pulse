@@ -1,3 +1,13 @@
+import {
+    COLORS,
+    card,
+    notice,
+    section,
+    context,
+    esc,
+    when
+} from "../../core/ui.js";
+
 export default {
     id: "afk",
     name: "AFK",
@@ -32,10 +42,15 @@ export default {
                 };
                 ctx.state.set("afk", state);
 
-                await respond({
-                    response_type: "ephemeral",
-                    text: "You are now AFK"
-                });
+                await respond(
+                    notice(
+                        "success",
+                        "You're now *AFK*",
+                        {
+                            hint: `Reason: ${esc(reason)}  ·  \`/p-awake\` when you're back`
+                        }
+                    )
+                );
 
                 ctx.events.emitEvent(
                     "afk.enabled",
@@ -55,10 +70,13 @@ export default {
                 const current =
                     ctx.state.get("afk");
                 if (!current?.enabled) {
-                    await respond({
-                        response_type: "ephemeral",
-                        text: "You are not currently AFK"
-                    });
+                    await respond(
+                        notice(
+                            "info",
+                            "You're not AFK right now.",
+                            { hint: "Use `/p-afk <reason>` to go AFK." }
+                        )
+                    );
                     return;
                 }
 
@@ -68,10 +86,12 @@ export default {
                     since: null,
                     notifiedUsers: new Set()
                 });
-                await respond({
-                    response_type: "ephemeral",
-                    text: "You are no longer AFK"
-                });
+                await respond(
+                    notice(
+                        "success",
+                        "Welcome back, you're no longer *AFK*."
+                    )
+                );
                 
                 ctx.events.emitEvent(
                     "afk.disabled"
@@ -207,11 +227,26 @@ async function notifyUser({ event, ctx}) {
         const text =
                 `:afk: I am currently AFK | Reason: ${afk.reason}\n I'll respond to your message when I am back.`
 
+        // Compact auto-reply card; `text` stays as the notification fallback.
+        const reply = card({
+            text,
+            color: COLORS.warning,
+            blocks: [
+                section(
+                    `:afk: *I'm AFK right now*\n> ${esc(afk.reason).replace(/\n/g, "\n> ")}`
+                ),
+                context(
+                    afk.since ? `Away since ${when(afk.since, "{time}")}  ·  ` : "",
+                    "I'll reply when I'm back"
+                )
+            ]
+        });
+
         try {
             await ctx.slack.userClient.chat.postEphemeral({
                 channel: event.channel,
                 user: event.user,
-                text
+                ...reply
             });
 
             ctx.logger.info(
@@ -243,7 +278,7 @@ async function notifyUser({ event, ctx}) {
     }
     await ctx.slack.userClient.chat.postMessage({
         channel: channelId,
-        text
+        ...reply
     });
     ctx.logger.info(`AFK dm fallback sent to ${event.user}`);
     } catch (error) {

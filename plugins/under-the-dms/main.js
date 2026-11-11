@@ -1,3 +1,11 @@
+import {
+    COLORS,
+    card,
+    notice,
+    section,
+    context
+} from "../../core/ui.js";
+
 export default {
     id: "under-the-dms",
     name: "Under the DMs",
@@ -43,12 +51,18 @@ export default {
                     }
                 );
 
-                await respond({
-                    response_type: "ephemeral",
-                    text: enabled
-                        ? ":mailbox_with_mail: Under the DMs tragedy is now ON"
-                        : ":mailbox_with_not_mail: Under the DMs in now OFF"
-                });
+                await respond(
+                    enabled
+                        ? notice(
+                            "warning",
+                            ":mailbox_with_mail:  *Under the DMs* is now *ON*",
+                            { hint: "Anyone who DMs you gets a one-time heads-up. Run `/p-underthedms` again to turn it off." }
+                        )
+                        : notice(
+                            "success",
+                            ":mailbox_with_no_mail:  *Under the DMs* is now *OFF*"
+                        )
+                );
 
                 ctx.events.emitEvent(
                     enabled
@@ -136,12 +150,25 @@ async function notifyUser({ event, ctx }) {
 
     const text = `I am currently flooded with dms\n\n` +
                 `I'll get back to you when I can.`
-    
+
+    // Compact auto-reply card; `text` stays as the notification fallback.
+    const reply = card({
+        text,
+        color: COLORS.info,
+        blocks: [
+            section(
+                ":mailbox_with_mail: *I'm flooded with DMs right now*\n" +
+                "I'll get back to you when I can."
+            ),
+            context("You'll only see this once")
+        ]
+    });
+
     try {
         await ctx.slack.userClient.chat.postEphemeral({
             channel: event.channel,
             user: event.user,
-            text
+            ...reply
         });
 
         ctx.logger.info(`Under the DMs ephemeral sent to ${event.user}`);
@@ -175,7 +202,7 @@ async function notifyUser({ event, ctx }) {
 
         await ctx.slack.userClient.chat.postMessage({
             channel: channelId,
-            text
+            ...reply
         });
 
         ctx.logger.info(`Under the DMs fallback has been triggered by ${event.user}`);

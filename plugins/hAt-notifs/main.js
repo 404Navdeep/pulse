@@ -1,4 +1,8 @@
 import axios from "axios";
+import {
+    COLORS, card, header, section, fields, context, footer,
+    esc, duration, meter, dots
+} from "../../core/ui.js";
 
 let runtimeState = {
     date: null,
@@ -132,7 +136,7 @@ async function checkHackatime(ctx) {
         ) {
             await sendNotification(
                 ctx,
-                "Wohoo coding started!"
+                startedMessage(totalSeconds)
             );
 
             runtimeState.startedSent = true;
@@ -166,7 +170,7 @@ async function checkHackatime(ctx) {
                 hour++
             ) {
                 await sendNotification(ctx,
-                    `:mhm: ${hour}hr coded on ${name}!`
+                    projectMessage(name, hour, projectSeconds, totalSeconds)
                 );
                 ctx.logger.info({
                     project: name,
@@ -222,7 +226,7 @@ async function checkHackatime(ctx) {
 
                 await sendNotification(
                     ctx,
-                    `:yay: +1 to :${normaliseLanguage(name)}:`
+                    languageMessage(name, seconds, totalSeconds)
                 );
 
                 runtimeState.languageSent.add(
@@ -277,13 +281,71 @@ function normaliseLanguage(language) {
 
 async function sendNotification(
     ctx,
-    text
+    message
 ) {
     await ctx.slack.botClient.chat.postMessage({
         channel:
             process.env.S404PC_CID,
 
-        text
+        ...(typeof message === "string"
+            ? { text: message }
+            : message)
+    });
+}
+
+// ---------------------------------------------------------------- Block Kit
+
+const HOUR = 3600;
+
+function startedMessage(totalSeconds) {
+    return card({
+        text: "Wohoo coding started! Hackatime is tracking today's session.",
+        color: COLORS.info,
+        blocks: [
+            header("Coding session started", "⌨️"),
+            section("*Wohoo, coding started!* Hackatime is tracking today's session."),
+            context(`Logged so far today: *${duration(totalSeconds * 1000)}*`),
+            footer("Hackatime", "first activity of the day")
+        ]
+    });
+}
+
+function projectMessage(name, hour, projectSeconds, totalSeconds) {
+    // Progress toward the next hour milestone on this project.
+    const intoNextHour = (projectSeconds % HOUR) / HOUR;
+    return card({
+        text: `${hour}hr coded on ${name}! (${duration(projectSeconds * 1000)} on it today)`,
+        color: COLORS.success,
+        blocks: [
+            header(`${hour} hour${hour === 1 ? "" : "s"} on ${name}`, "🔥"),
+            fields([
+                ["Project", `\`${esc(name)}\``],
+                ["Time on project", duration(projectSeconds * 1000)],
+                ["Total today", duration(totalSeconds * 1000)],
+                ["Next milestone", `${hour + 1}hr  ${meter(intoNextHour)}`]
+            ]),
+            footer("Hackatime", "another hour in the books")
+        ]
+    });
+}
+
+function languageMessage(name, seconds, totalSeconds) {
+    const share = totalSeconds > 0 ? seconds / totalSeconds : 0;
+    const emoji = `:${normaliseLanguage(name)}:`;
+    return card({
+        text: `+1 to ${name}! ${duration(seconds * 1000)} today`,
+        color: COLORS.brand,
+        blocks: [
+            header(`+1 hour of ${name}`, "🎉"),
+            section(`${emoji}  *${esc(name)}* just passed the 1 hour mark today.`),
+            context(
+                dots(
+                    `*${duration(seconds * 1000)}* today`,
+                    `${Math.round(share * 100)}% of your coding  ${meter(share)}`
+                )
+            ),
+            footer("Hackatime", "language milestone")
+        ]
     });
 }
 

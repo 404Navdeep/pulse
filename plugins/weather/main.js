@@ -1,4 +1,17 @@
 import axios from "axios";
+import {
+    COLORS,
+    card,
+    notice,
+    header,
+    section,
+    fields,
+    context,
+    divider,
+    footer,
+    meter,
+    dots
+} from "../../core/ui.js";
 
 const SRINAGAR = {
     latitude: 34.0837,
@@ -34,8 +47,7 @@ export default {
 
                     await ctx.slack.botClient.chat.postMessage({
                         channel: command.channel_id,
-                        text: weather.text,
-                        blocks: weather.blocks
+                        ...weather
                     });
                 } catch (error) {
                     ctx.logger.error(
@@ -50,7 +62,14 @@ export default {
 
                     await ctx.slack.botClient.chat.postMessage({
                         channel: command.channel_id,
-                        text: ":x: Couldn't get the weather right now."
+                        ...notice(
+                            "error",
+                            "Couldn't get the weather right now.",
+                            {
+                                ephemeral: false,
+                                hint: "Try `/p-weather`, `/p-weather tomorrow` or a weekday like `/p-weather friday`."
+                            }
+                        )
                     });
                 }
             }
@@ -167,124 +186,70 @@ function parseDay(args) {
     return difference;
 }
 
+// ------------------------------------------------------------------ presentation
+
+const FOOTER_HINT = "Open-Meteo  ·  `/p-weather tomorrow` or a weekday";
+
+const rainMeter = pct =>
+    `${meter((Number(pct) || 0) / 100, 8)}  ${pct ?? 0}%`;
+
+const humidityMeter = pct =>
+    `${meter((Number(pct) || 0) / 100, 8)}  ${pct ?? 0}%`;
+
 function formatToday(data) {
     const current = data.current;
     const daily = data.daily;
 
-    const condition =
-        weatherDescription(
-            current.weather_code
-        );
+    const code = current.weather_code;
+    const condition = weatherDescription(code);
+    const emoji = weatherEmoji(code);
 
-    const emoji =
-        weatherEmoji(
-            current.weather_code
-        );
+    const rainChance = daily.precipitation_probability_max[0];
+    const precipitation = daily.precipitation_sum[0];
+    const max = daily.temperature_2m_max[0];
+    const min = daily.temperature_2m_min[0];
+    const sunrise = formatTime(daily.sunrise[0]);
+    const sunset = formatTime(daily.sunset[0]);
 
-    const rainChance =
-        daily.precipitation_probability_max[0];
+    const blocks = [
+        header(`${SRINAGAR.name} · Today`, emoji),
 
-    const precipitation =
-        daily.precipitation_sum[0];
+        section(
+            `*${current.temperature_2m}°C*  ${condition}\n` +
+            `Feels like *${current.apparent_temperature}°C*  ·  ` +
+            `High *${max}°*  /  Low *${min}°*`
+        ),
 
-    const max =
-        daily.temperature_2m_max[0];
+        fields([
+            [":droplet: Humidity", humidityMeter(current.relative_humidity_2m)],
+            [":cloud: Rain chance", rainMeter(rainChance)],
+            [":dash: Wind", `${current.wind_speed_10m} km/h`],
+            [":umbrella_with_rain_drops: Precipitation", `${precipitation} mm`]
+        ]),
 
-    const min =
-        daily.temperature_2m_min[0];
+        context(
+            dots(
+                `:sunrise_over_mountains: Sunrise *${sunrise}*`,
+                `:city_sunset: Sunset *${sunset}*`
+            )
+        )
+    ];
 
-    const sunrise =
-        formatTime(daily.sunrise[0]);
+    const outlook = nextDaysOutlook(daily, 3);
+    if (outlook) {
+        blocks.push(divider(), section(`*Coming up*\n${outlook}`));
+    }
 
-    const sunset =
-        formatTime(daily.sunset[0]);
+    blocks.push(footer("Weather", FOOTER_HINT));
 
-    return {
+    return card({
         text:
             `${emoji} Srinagar weather: ` +
             `${current.temperature_2m}°C, ` +
             `${condition}`,
-
-        blocks: [
-            {
-                type: "header",
-
-                text: {
-                    type: "plain_text",
-                    text:
-                        `${emoji} Srinagar Weather`
-                }
-            },
-
-            {
-                type: "section",
-
-                fields: [
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:droplet: *Humidity*\n` +
-                            `${current.relative_humidity_2m}%`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:wind: *Wind*\n` +
-                            `${current.wind_speed_10m} km/h`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:rain_cloud: *Rain Chance*\n` +
-                            `${rainChance}%`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:umbrella_with_rain_drops: *Precipitation*\n` +
-                            `${precipitation} mm`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:upvote: *High*\n` +
-                            `${max}°C`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:downvote: *Low*\n` +
-                            `${min}°C`
-                    }
-                ]
-            },
-
-            {
-                type: "context",
-
-                elements: [
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:sunrise_over_mountains: ${sunrise} ` +
-                            `- :ms-sunset-city: ${sunset}`
-                    }
-                ]
-            }
-        ]
-    };
+        blocks,
+        color: weatherColor(code)
+    });
 }
 
 function formatForecastDay(
@@ -306,125 +271,77 @@ function formatForecastDay(
             }
         );
 
-    const code =
-        daily.weather_code[index];
-
-    const condition =
-        weatherDescription(code);
-
-    const emoji =
-        weatherEmoji(code);
-
-    const max =
-        daily.temperature_2m_max[index];
-
-    const min =
-        daily.temperature_2m_min[index];
-
-    const apparentMax =
-        daily.apparent_temperature_max[index];
-
-    const apparentMin =
-        daily.apparent_temperature_min[index];
-
-    const rainChance =
-        daily.precipitation_probability_max[index];
-
-    const precipitation =
-        daily.precipitation_sum[index];
-
-    const wind =
-        daily.wind_speed_10m_max[index];
-
-    const sunrise =
-        formatTime(
-            daily.sunrise[index]
+    const dateLabel =
+        date.toLocaleDateString(
+            "en-IN",
+            {
+                day: "numeric",
+                month: "short"
+            }
         );
 
-    const sunset =
-        formatTime(
-            daily.sunset[index]
-        );
+    const code = daily.weather_code[index];
+    const condition = weatherDescription(code);
+    const emoji = weatherEmoji(code);
 
-    return {
+    const max = daily.temperature_2m_max[index];
+    const min = daily.temperature_2m_min[index];
+    const apparentMax = daily.apparent_temperature_max[index];
+    const apparentMin = daily.apparent_temperature_min[index];
+    const rainChance = daily.precipitation_probability_max[index];
+    const precipitation = daily.precipitation_sum[index];
+    const wind = daily.wind_speed_10m_max[index];
+    const sunrise = formatTime(daily.sunrise[index]);
+    const sunset = formatTime(daily.sunset[index]);
+
+    return card({
         text:
             `${emoji} Srinagar weather for ` +
             `${dayName}: ${max}/${min}°C`,
-
+        color: weatherColor(code),
         blocks: [
-            {
-                type: "header",
+            header(`${SRINAGAR.name} · ${dayName}`, emoji),
 
-                text: {
-                    type: "plain_text",
+            section(
+                `*${max}°C*  /  *${min}°C*  ·  ${condition}\n` +
+                `Would feel like ${apparentMax}°C / ${apparentMin}°C`
+            ),
 
-                    text:
-                        `${emoji} Srinagar - ${dayName}`
-                }
-            },
+            fields([
+                [":cloud: Rain chance", rainMeter(rainChance)],
+                [":umbrella_with_rain_drops: Precipitation", `${precipitation} mm`],
+                [":dash: Max wind", `${wind} km/h`],
+                [":calendar: Date", dateLabel]
+            ]),
 
-            {
-                type: "section",
+            context(
+                dots(
+                    `:sunrise_over_mountains: Sunrise *${sunrise}*`,
+                    `:city_sunset: Sunset *${sunset}*`
+                )
+            ),
 
-                text: {
-                    type: "mrkdwn",
-
-                    text:
-                        `*${condition}*\n` +
-                        `*${max}°C / ${min}°C*\n` +
-                        `Would feel like ` +
-                        `${apparentMax}°C / ` +
-                        `${apparentMin}°C`
-                }
-            },
-
-            {
-                type: "section",
-
-                fields: [
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:rain_cloud: *Rain Chance*\n` +
-                            `${rainChance}%`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:umbrella_with_rain_drops: *Precipitation*\n` +
-                            `${precipitation} mm`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:wind: *Max Wind*\n` +
-                            `${wind} km/h`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:sunrise_over_mountains: *Sunrise*\n` +
-                            `${sunrise}`
-                    },
-
-                    {
-                        type: "mrkdwn",
-
-                        text:
-                            `:ms-sunset-city: *Sunset*\n` +
-                            `${sunset}`
-                    }
-                ]
-            }
+            footer("Weather", FOOTER_HINT)
         ]
-    };
+    });
+}
+
+// Compact "next N days" lines built from data we already fetched.
+function nextDaysOutlook(daily, count) {
+    const lines = [];
+
+    for (let i = 1; i <= count && i < daily.time.length; i++) {
+        const day = new Date(`${daily.time[i]}T12:00:00`)
+            .toLocaleDateString("en-IN", { weekday: "short" });
+
+        lines.push(
+            `${weatherEmoji(daily.weather_code[i])} *${day}*  ` +
+            `${daily.temperature_2m_max[i]}° / ${daily.temperature_2m_min[i]}°  ·  ` +
+            `${daily.precipitation_probability_max[i] ?? 0}% rain`
+        );
+    }
+
+    return lines.join("\n");
 }
 
 function formatTime(value) {
@@ -485,24 +402,28 @@ function weatherEmoji(code) {
         return ":sunny:";
     }
 
-    if (
-        code === 1 ||
-        code === 2 ||
-        code === 3
-    ) {
-        return ":blobby-cloud:";
+    if (code === 1) {
+        return ":mostly_sunny:";
+    }
+
+    if (code === 2) {
+        return ":partly_sunny:";
+    }
+
+    if (code === 3) {
+        return ":cloud:";
     }
 
     if (
         code === 45 ||
         code === 48
     ) {
-        return ":white_heart:";
+        return ":fog:";
     }
 
     if (
-        code >= 51 &&
-        code <= 67
+        (code >= 51 && code <= 67) ||
+        (code >= 80 && code <= 82)
     ) {
         return ":rain_cloud:";
     }
@@ -519,4 +440,29 @@ function weatherEmoji(code) {
     }
 
     return ":thermometer:";
+}
+
+// Stripe colour that matches the sky.
+function weatherColor(code) {
+    if (code === 0 || code === 1) {
+        return COLORS.warning;
+    }
+
+    if (code === 2 || code === 3 || code === 45 || code === 48) {
+        return COLORS.neutral;
+    }
+
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
+        return COLORS.info;
+    }
+
+    if (code >= 71 && code <= 86) {
+        return "#BAE6FD";
+    }
+
+    if (code >= 95) {
+        return COLORS.danger;
+    }
+
+    return COLORS.brand;
 }

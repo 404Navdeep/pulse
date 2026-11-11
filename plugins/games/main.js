@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { COLORS, card, notice, section, context, footer, esc } from "../../core/ui.js";
 
 const EIGHT_BALL_RESPONSES = [
     "It is certain",
@@ -112,8 +113,10 @@ async function handle8ball(
         await client.chat.postMessage({
             channel,
             thread_ts: threadTs,
-
-            text: ":8ball: Ask me an actual question, vro"
+            ...notice("info", ":8ball:  Ask me an actual question, vro", {
+                hint: "Try `!8ball will it ship today?`",
+                ephemeral: false
+            })
         });
         return;
     }
@@ -126,7 +129,15 @@ async function handle8ball(
     await client.chat.postMessage({
         channel,
         thread_ts: threadTs,
-        text: `:8ball: *The 8-ball says:*\n${answer}`
+        ...card({
+            text: `:8ball: The 8-ball says: ${answer}`,
+            color: COLORS.brand,
+            blocks: [
+                context(`:speech_balloon:  _${esc(question.slice(0, 200))}_`),
+                section(`:8ball:  *${esc(answer)}*`),
+                footer("Games", "!8ball")
+            ]
+        })
     });
 }
 
@@ -150,7 +161,14 @@ async function handleCoinflip(
     await client.chat.postMessage({
         channel,
         thread_ts: threadTs,
-        text: `:coin-mario: *${result}!*`
+        ...card({
+            text: `:coin-mario: ${result}!`,
+            color: result === "Heads" ? COLORS.warning : COLORS.neutral,
+            blocks: [
+                section(`:coin-mario:  *${result}!*`),
+                footer("Games", "!coinflip")
+            ]
+        })
     });
 }
 
@@ -165,9 +183,13 @@ async function handleAiGame(
         await client.chat.postMessage({
             channel,
             thread_ts: threadTs,
-            text: type === "roast"
-                ? ":fireball: Give me something to roast!"
-                : ":sparkling-blahaj-heart: Give me something to compliment"
+            ...notice(
+                "info",
+                type === "roast"
+                    ? ":fireball:  Give me something to roast!"
+                    : ":sparkling-blahaj-heart:  Give me something to compliment",
+                { hint: `Try \`!${type} <something>\``, ephemeral: false }
+            )
         });
         return;
     }
@@ -209,8 +231,20 @@ async function handleAiGame(
     await client.chat.postMessage({
         channel,
         thread_ts: threadTs,
-        text: type === "roast"
+        ...card({
+            text: type === "roast"
                 ? `:fireball: ${answer}`
-                : `:sparkling-blahaj-heart: ${answer}`
+                : `:sparkling-blahaj-heart: ${answer}`,
+            color: type === "roast" ? COLORS.danger : COLORS.success,
+            blocks: [
+                section(
+                    type === "roast"
+                        ? `:fireball:  ${esc(answer)}`
+                        : `:sparkling-blahaj-heart:  ${esc(answer)}`
+                ),
+                context(`_${type === "roast" ? "Roasting" : "Complimenting"}: ${esc(input.slice(0, 100))}_`),
+                footer("Games", `!${type}`)
+            ]
+        })
     });
 }

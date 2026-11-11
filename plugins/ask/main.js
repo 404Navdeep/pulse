@@ -1,4 +1,24 @@
 import OpenAI from "openai";
+import {
+    COLORS, card, notice, section, context, footer, divider
+} from "../../core/ui.js";
+
+// Split a long answer into <=2900 char section blocks, preferring paragraph / line breaks.
+function answerBlocks(answer) {
+    const MAX = 2900;
+    const chunks = [];
+    let rest = answer;
+    while (rest.length > MAX) {
+        let cut = rest.lastIndexOf("\n\n", MAX);
+        if (cut < MAX / 2) cut = rest.lastIndexOf("\n", MAX);
+        if (cut < MAX / 2) cut = rest.lastIndexOf(" ", MAX);
+        if (cut < MAX / 2) cut = MAX;
+        chunks.push(rest.slice(0, cut).trim());
+        rest = rest.slice(cut).trim();
+    }
+    if (rest) chunks.push(rest);
+    return chunks.slice(0, 40).map(c => section(c));
+}
 
 
 export default {
@@ -25,7 +45,10 @@ export default {
                             channel: event.channel,
                             thread_ts:
                                 event.thread_ts || event.ts,
-                            text: "Ask me something, mate."
+                            ...notice("info", "Ask me something, mate.", {
+                                hint: "Mention me with a question, e.g. `@Pulse what did we decide yesterday?`",
+                                ephemeral: false
+                            })
                         });
 
                         return;
@@ -36,7 +59,13 @@ export default {
                     const thinking = await client.chat.postMessage({
                         channel: event.channel,
                         thread_ts: threadTs,
-                        text: ":hourglass_flowing_sand: Thinking..."
+                        ...card({
+                            text: ":hourglass_flowing_sand: Thinking...",
+                            color: COLORS.neutral,
+                            blocks: [
+                                context(":hourglass_flowing_sand:  _Thinking…_")
+                            ]
+                        })
                     });
 
                     const workspaceContext = await collectWorkspaceContext(
@@ -63,7 +92,19 @@ export default {
                     await client.chat.update({
                         channel: event.channel,
                         ts: thinking.ts,
-                        text: answer
+                        ...card({
+                            text: answer,
+                            color: COLORS.brand,
+                            blocks: [
+                                ...answerBlocks(answer),
+                                divider(),
+                                footer(
+                                    "Ask",
+                                    `${process.env.AI_MODEL || "openai/gpt-5-mini:batch"}  ·  ` +
+                                    (event.thread_ts ? "used thread + channel context" : "used channel context")
+                                )
+                            ]
+                        })
                     });
 
                     ctx.logger.info(`Answered /ask mention from ${event.user}`);
@@ -79,7 +120,10 @@ export default {
                         await client.chat.postMessage({
                             channel: event.channel,
                             thread_ts: event.thread_ts || event.ts,
-                            text: ":x: I couldn't answer that"
+                            ...notice("error", "I couldn't answer that.", {
+                                hint: "Something went wrong on my side. Try again in a moment.",
+                                ephemeral: false
+                            })
                         });
                     } catch {}
                 }

@@ -1,3 +1,7 @@
+import {
+    COLORS, card, notice, header, section, fields, footer, divider, when, clamp
+} from "../../core/ui.js";
+
 export default {
     id: "readme",
     name: "Remind Me",
@@ -32,22 +36,21 @@ export default {
                 const input = command.text?.trim();
 
                 if (!input) {
-                    await respond({
-                        response_type: "ephemeral",
-                        text: ":alarm_clock: Usage: `/remindme 30m Do Something`"
-                    });
+                    await respond(notice(
+                        "info",
+                        ":alarm_clock:  *Set a reminder*\n`/remindme 30m Do something`",
+                        { hint: "Units: s, m, h, d  ·  I'll DM you when it's time" }
+                    ));
                     return;
                 }
 
                 const parsed = parseReminder(input);
                 if (!parsed) {
-                    await respond({
-                        response_type: "ephemeral",
-                        text: ":x: I couldn't understand that time.\n\n" +
-                            "Try: \n" +
-                            "`/remindme 30m Submit project`\n" +
-                            "`/remindme 1h Get the submission`\n"
-                    });
+                    await respond(notice(
+                        "error",
+                        "I couldn't understand that time.",
+                        { hint: "Try `/remindme 30m Submit project` or `/remindme 1h Get the submission`" }
+                    ));
                     return;
                 }
                 const {
@@ -56,10 +59,7 @@ export default {
                 } = parsed;
 
                 if (delay <=0) {
-                    await respond({
-                        response_type: "ephemeral",
-                        text: ":x: The reminder time must be in the future."
-                    });
+                    await respond(notice("error", "The reminder time must be in the future."));
                 }
 
                 const reminderId = crypto.randomUUID();
@@ -92,11 +92,20 @@ export default {
                     reminders
                 );
 
-                await respond({
-                    response_type: "Ephemeral",
-                    text: `:alarm_clock: Reminder set for ${formatDelay(delay)}. \n` +
-                        `I'll DM you when it's time`
-                });
+                await respond(card({
+                    text: `Reminder set for ${formatDelay(delay)}: ${text}`,
+                    color: COLORS.success,
+                    response_type: "ephemeral",
+                    blocks: [
+                        header("Reminder set", "⏰"),
+                        section(clamp(text, 2900)),
+                        fields([
+                            ["In", formatDelay(delay)],
+                            ["At", when(reminder.remindAt)]
+                        ]),
+                        footer("Remind Me", "I'll DM you when it's time")
+                    ]
+                }));
                 ctx.logger.info(
                     {
                         reminderId,
@@ -138,23 +147,16 @@ async function fireReminder(
         }
         await ctx.slack.botClient.chat.postMessage({
             channel: channelId,
-            text: `:alarm_clock: Reminder\n\n${reminder.text}`,
-            blocks: [
-                {
-                    type: "header",
-                    text: {
-                        type: "plain_text",
-                        text: "Reminder"
-                    }
-                },
-                {
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: reminder.text
-                    }
-                }
-            ]
+            ...card({
+                text: `:alarm_clock: Reminder: ${reminder.text}`,
+                color: COLORS.warning,
+                blocks: [
+                    header("Reminder", "⏰"),
+                    section(clamp(reminder.text, 2900)),
+                    divider(),
+                    footer("Remind Me", "`/p-remindme 30m <text>` to set another")
+                ]
+            })
         });
 
         ctx.logger.info({
@@ -202,9 +204,9 @@ function formatDelay(ms) {
 
     if (seconds < 60) {return `${seconds} second${seconds === 1 ? "" : "s"}`};
     const minutes = Math.round(seconds / 60);
-    if (minutes < 60) {return `${minutes} minutes${minutes === 1 ? "" : "m"}`};
+    if (minutes < 60) {return `${minutes} minute${minutes === 1 ? "" : "s"}`};
     const hours = Math.round(minutes / 60);
-    if (hours < 24) {return `${hours} hour${hours === 1 ? "" : "h"}`};
+    if (hours < 24) {return `${hours} hour${hours === 1 ? "" : "s"}`};
     const days = Math.round(hours / 24);
-    return `${days} day${day === 1 ? "" : "d"}`;
+    return `${days} day${days === 1 ? "" : "s"}`;
 }

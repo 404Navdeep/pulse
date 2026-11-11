@@ -1,3 +1,24 @@
+import {
+    COLORS,
+    card,
+    dots,
+    fields,
+    footer,
+    header,
+    notice,
+    section
+} from "../../core/ui.js";
+
+// `card` puts its text above the coloured stripe; here the text should only be
+// the notification fallback, so move it onto the attachment.
+function stripe(message) {
+    const { text, attachments, ...rest } = message;
+    return {
+        ...rest,
+        attachments: attachments.map(a => ({ ...a, fallback: text ?? a.fallback }))
+    };
+}
+
 export default {
     id: "purge",
     name: "Purge",
@@ -18,10 +39,11 @@ export default {
                 await ack();
                 const ownerID = process.env.OWNER_ID;
                 if (command.user_id !== ownerID) {
-                    await respond({
-                        response_type: "ephemeral",
-                        text: ":loll: No vro"
-                    });
+                    await respond(stripe(notice(
+                        "error",
+                        ":loll: No vro",
+                        { hint: "`/p-purge` is owner-only." }
+                    )));
                     return;
                 }
                 const args = command.text?.trim().split(/\s+/) || [];
@@ -31,10 +53,11 @@ export default {
                 if (!Number.isInteger(amount) ||
                 amount < 1 ||
                 amount > 100) {
-                    await respond({
-                        response_type: "ephemeral",
-                        text: ":x: Give me a nu,ber between 1 and 100"
-                    });
+                    await respond(stripe(notice(
+                        "error",
+                        "Give me a number between 1 and 100.",
+                        { hint: "Usage: `/p-purge [number] [--threads]`" }
+                    )));
                     return;
                 }
 
@@ -68,10 +91,11 @@ export default {
                         .slice(0, amount);
 
                     if (!ownMessages.length) {
-                        await respond({
-                            response_type: "ephemeral",
-                            text: ":information_source: I dont have any messages to purge here!"
-                        });
+                        await respond(stripe(notice(
+                            "info",
+                            "I don't have any messages to purge here!",
+                            { hint: "Only Pulse's own recent messages are removed." }
+                        )));
 
                         return;
                     }
@@ -121,10 +145,26 @@ export default {
                         }
                     }
 
-                    await respond({
+                    const failed = messagesToDelete.length - deleted;
+
+                    await respond(stripe(card({
+                        text: `Deleted ${deleted} Pulse message${deleted === 1 ? "" : "s"}.`,
+                        color: failed ? COLORS.warning : COLORS.success,
                         response_type: "ephemeral",
-                        text: `:recycle: Deleted ${deleted} Pulse messages${deleted === 1 ? "" : "s"}.`
-                    });
+                        blocks: [
+                            header("Purge complete", "♻️"),
+                            fields([
+                                ["Deleted", `\`${deleted}\` message${deleted === 1 ? "" : "s"}`],
+                                ["Channel", `<#${command.channel_id}>`],
+                                ["Threads", includeThreads ? "Included" : "Skipped"],
+                                ...(failed ? [["Couldn't delete", `\`${failed}\``]] : [])
+                            ]),
+                            ...(failed
+                                ? [section(":warning:  Some messages couldn't be deleted. Check the logs for details.")]
+                                : []),
+                            footer("Purge", dots("only Pulse's own messages", "`/p-purge [number] [--threads]`"))
+                        ]
+                    })));
 
                     ctx.logger.info(`Purges ${deleted} from ${command.channel_id}`);
                 } catch (error) {
@@ -135,10 +175,11 @@ export default {
                         }
                     }, "Purge failed");
 
-                    await respond({
-                        response_type: "ephemeral",
-                        text: ":x: I couldn't purge my messages."
-                    });
+                    await respond(stripe(notice(
+                        "error",
+                        "I couldn't purge my messages.",
+                        { hint: "Check Pulse's logs for details." }
+                    )));
                 }
             }
         });
